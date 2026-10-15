@@ -1,14 +1,16 @@
 {
-  "name": "react-example",
+  "name": "catatuang",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:open": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-web.ps1",
+    "stop:web": "powershell -NoProfile -ExecutionPolicy Bypass -File ./stop-web.ps1",
     "build": "vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"for (const p of ['dist','server.js']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "tsx --test src/utils/finance.test.ts src/server/api.test.ts"
   },
@@ -23,7 +25,6 @@
     "express-rate-limit": "^8.7.0",
     "express-session": "^1.19.0",
     "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
     "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -39,8 +40,6 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

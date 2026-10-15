@@ -24,6 +24,8 @@ Copy `.env.example` to `.env` and enter `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DA
 
 `SUPABASE_SERVICE_ROLE_KEY` is optional for the user application and required only for the admin API. Keep it in the server environment; never expose it through a `VITE_*` variable or to the browser. See `README_ADMIN.md` before enabling the admin routes.
 
+If production runs behind a reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxies between the internet and this server (1 to 5). Leave it unset when the server is directly internet-facing; this keeps client IP based rate limits from trusting spoofed forwarded headers.
+
 The server rejects common example Supabase URLs and placeholder anon keys at startup, and reports only the invalid variable name. `.env.example` contains no project keys or database credentials; put real local values in `.env.local` (or `.env`). Values already present in the process environment take precedence over both files.
 
 ## Configure Supabase
@@ -50,12 +52,31 @@ After running the first migration, verify the three `receipt_*` columns in **Tab
 
 ## Run
 
+### Windows (start server and open browser automatically)
+
+From the project folder in PowerShell:
+
+```powershell
+npm install
+npm run dev:open
+```
+
+This starts the local server in the background and opens `http://localhost:3000` in your default browser. Stop it with:
+
+```powershell
+npm run stop:web
+```
+
+Server output is saved to `web-server.log` and `web-server-error.log` if startup fails.
+
+### Any platform (manual browser)
+
 ```powershell
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. `npm run build` creates the production client bundle; `npm start` starts the Express server in production mode after setting `NODE_ENV=production` and the required environment variables.
+Keep that terminal open and visit `http://localhost:3000`. Press `Ctrl+C` to stop the server. `npm run build` creates the production client bundle; `npm start` starts the Express server in production mode after setting `NODE_ENV=production` and the required environment variables.
 
 ## Data and security notes
 

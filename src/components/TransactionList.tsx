@@ -36,7 +36,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   }
 
   if (transactions.length === 0) {
-    return <EmptyState isFiltered={true} onResetFilter={onResetFilter} />;
+    return <EmptyState isFiltered={isFiltered} onAddNew={onAddNew} onResetFilter={onResetFilter} />;
   }
 
   return (

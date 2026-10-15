@@ -30,12 +30,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    let active = true;
     setDetails(transaction);
     setSignedUrl('');
     setReceiptError('');
     setIsImageLoading(false);
-    return () => { active = false; };
   }, [transaction]);
 
   useEffect(() => {

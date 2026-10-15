@@ -1,7 +1,7 @@
 import connectPgSimple from 'connect-pg-simple';
 import { createClient, type User } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
-import { rateLimit } from 'express-rate-limit';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import session, { type Store } from 'express-session';
 import { Pool } from 'pg';
 import express, { Router, type Request, type Response, type NextFunction } from 'express';
@@ -84,10 +84,6 @@ const maxReceiptSize = 5 * 1024 * 1024;
 let sessionPool: Pool | undefined;
 let missingAdminKeyLogged = false;
 
-function emptyQueryValueToUndefined(value: unknown) {
-  return typeof value === 'string' && !value.trim() ? undefined : value;
-}
-
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url().refine((value) => value.startsWith('postgres://') || value.startsWith('postgresql://')),
   SUPABASE_URL: z.string().url().refine((value) =>
@@ -127,7 +123,7 @@ function readServerEnvironment() {
   return result.data;
 }
 
-const emptyOptionalValueToUndefined = (value: unknown) =>
+const emptyQueryValueToUndefined = (value: unknown) =>
   typeof value === 'string' && !value.trim() ? undefined : value;
 
 const transactionSchema = z.object({
@@ -139,9 +135,9 @@ const transactionSchema = z.object({
   description: z.string().trim().min(1).max(200),
   type: z.enum(['income', 'expense']),
   category: z.string().trim().min(1).max(100).default('Lainnya'),
-  receiptPath: z.preprocess(emptyOptionalValueToUndefined, z.string().trim().min(1).max(500).nullable().optional()),
-  receiptMime: z.preprocess(emptyOptionalValueToUndefined, z.enum(['image/jpeg', 'image/png', 'image/webp']).nullable().optional()),
-  receiptSize: z.preprocess(emptyOptionalValueToUndefined, z.number().int().positive().max(maxReceiptSize).nullable().optional()),
+  receiptPath: z.preprocess(emptyQueryValueToUndefined, z.string().trim().min(1).max(500).nullable().optional()),
+  receiptMime: z.preprocess(emptyQueryValueToUndefined, z.enum(['image/jpeg', 'image/png', 'image/webp']).nullable().optional()),
+  receiptSize: z.preprocess(emptyQueryValueToUndefined, z.number().int().positive().max(maxReceiptSize).nullable().optional()),
 }).superRefine((transaction, context) => {
   const categories = transaction.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   if (!(categories as readonly string[]).includes(transaction.category)) {
@@ -429,7 +425,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     limit: 120,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    keyGenerator: (req) => req.socket.remoteAddress ?? 'unknown',
+    keyGenerator: (req) => req.socket.remoteAddress ? ipKeyGenerator(req.socket.remoteAddress) : 'unknown',
     message: { error: 'Terlalu banyak permintaan admin. Coba lagi beberapa saat.' },
   });
   router.use('/admin', adminApiRateLimit);
@@ -460,7 +456,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     limit: 5,
     standardHeaders: 'draft-8',
     message: { error: 'Terlalu banyak percobaan admin. Coba lagi beberapa saat.' },
-    keyGenerator: (req) => req.socket.remoteAddress ?? 'unknown',
+    keyGenerator: (req) => req.socket.remoteAddress ? ipKeyGenerator(req.socket.remoteAddress) : 'unknown',
   });
 
   async function lookupAdminRole(userId: string) {
@@ -1378,9 +1374,9 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
   router.patch('/transactions/:id', requireAuth, asyncRoute(async (req, res) => {
     const id = z.string().uuid().safeParse(req.params.id);
     const updateSchema = z.object({
-      receiptPath: z.preprocess(emptyOptionalValueToUndefined, z.string().trim().min(1).max(500).nullable().optional()),
-      receiptMime: z.preprocess(emptyOptionalValueToUndefined, z.enum(['image/jpeg', 'image/png', 'image/webp']).nullable().optional()),
-      receiptSize: z.preprocess(emptyOptionalValueToUndefined, z.number().int().positive().max(maxReceiptSize).nullable().optional()),
+      receiptPath: z.preprocess(emptyQueryValueToUndefined, z.string().trim().min(1).max(500).nullable().optional()),
+      receiptMime: z.preprocess(emptyQueryValueToUndefined, z.enum(['image/jpeg', 'image/png', 'image/webp']).nullable().optional()),
+      receiptSize: z.preprocess(emptyQueryValueToUndefined, z.number().int().positive().max(maxReceiptSize).nullable().optional()),
     }).strict().superRefine((metadata, context) => {
       const fields = [metadata.receiptPath, metadata.receiptMime, metadata.receiptSize];
       const provided = fields.some((field) => field !== undefined);

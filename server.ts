@@ -1,9 +1,11 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import dotenv from 'dotenv';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
+import { rateLimit } from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
 import { closeApiResources, createApiRouter } from './server/api';
 
@@ -20,21 +22,54 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 export default app;
+const cspSupabaseOrigin = (() => {
+  try {
+    return process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).origin : 'https://*.supabase.co';
+  } catch {
+    return 'https://*.supabase.co';
+  }
+})();
 
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  if (req.path === '/admin' || req.path.startsWith('/admin/')) {
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    res.setHeader('Content-Security-Policy', [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "script-src 'self'",
+      "style-src 'self' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      `img-src 'self' data: blob: ${cspSupabaseOrigin}`,
+      `connect-src 'self' ${cspSupabaseOrigin}`,
+      'upgrade-insecure-requests',
+    ].join('; '));
   }
   next();
 });
 
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
+// Only trust forwarded client IPs when the deployment has an explicitly
+// configured, fixed number of trusted reverse-proxy hops.
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+if (Number.isInteger(trustProxyHops) && trustProxyHops > 0 && trustProxyHops <= 5) {
+  app.set('trust proxy', trustProxyHops);
 }
 
 app.use(express.json({ limit: '32kb' }));
+
+const aiParseRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Terlalu banyak permintaan. Coba lagi beberapa saat.' },
+});
 
 // Indonesian fallback parser when AI key is missing or offline
 function fallbackSmartParse(text: string) {
@@ -175,19 +210,22 @@ function fallbackSmartParse(text: string) {
 }
 
 // POST endpoint for Natural Language parsing with Gemini AI
-app.post('/api/ai/parse-transaction', async (req: Request, res: Response) => {
-  const { input } = req.body;
+app.post('/api/ai/parse-transaction', aiParseRateLimit, async (req: Request, res: Response) => {
+  const input = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body.input
+    : undefined;
 
-  if (!input || typeof input !== 'string' || !input.trim()) {
-    res.status(400).json({ error: 'Input teks tidak boleh kosong.' });
+  if (typeof input !== 'string' || !input.trim() || input.trim().length > 1000) {
+    res.status(400).json({ error: 'Input teks wajib diisi dan maksimal 1.000 karakter.' });
     return;
   }
+  const transactionText = input.trim();
 
   const apiKey = process.env.GEMINI_API_KEY;
 
   // If no Gemini key is set or key is placeholder, use intelligent local fallback
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim() === '') {
-    const fallbackResult = fallbackSmartParse(input);
+    const fallbackResult = fallbackSmartParse(transactionText);
     res.json({
       success: true,
       source: 'heuristic',
@@ -204,7 +242,7 @@ app.post('/api/ai/parse-transaction', async (req: Request, res: Response) => {
 Tugas Anda adalah membaca kalimat transaksi bahasa sehari-hari dan mengekstraknya ke format terstruktur.
 
 Tanggal hari ini: ${today}.
-Input user: "${input}"
+Input user: "${transactionText}"
 
 Aturan ekstraksi:
 1. "description": deskripsi singkat yang rapi (contoh: "Beli nasi padang", "Uang bulanan", "Beli bensin").
@@ -256,7 +294,7 @@ Aturan ekstraksi:
     });
   } catch (err) {
     console.error('Gemini parse error, using fallback parser:', err);
-    const fallbackResult = fallbackSmartParse(input);
+    const fallbackResult = fallbackSmartParse(transactionText);
     res.json({
       success: true,
       source: 'fallback',
@@ -282,25 +320,35 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
   const distDir = path.resolve(__dirname, 'dist');
 
+  let viteServer: Awaited<ReturnType<typeof createViteServer>> | undefined;
   if (isProd && fs.existsSync(distDir)) {
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distDir, 'index.html'));
     });
   } else {
-    const vite = await createViteServer({
+    viteServer = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(viteServer.middlewares);
   }
 
+  app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (res.headersSent) return;
+    const type = error && typeof error === 'object' ? (error as { type?: unknown }).type : undefined;
+    const status = type === 'entity.too.large' ? 413 : type === 'entity.parse.failed' ? 400 : 500;
+    if (status === 500) console.error('Unhandled request error');
+    res.status(status).json({ error: status === 413 ? 'Isi permintaan terlalu besar.' : status === 400 ? 'Format JSON tidak valid.' : 'Terjadi kesalahan internal.' });
+  });
+
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`CatatUang server running at ${process.env.APP_URL}`);
+    console.log(`CatatUang server running at ${process.env.APP_URL || `http://localhost:${PORT}`}`);
   });
 
   const shutdown = () => {
     httpServer.close(() => {
+      void viteServer?.close();
       void closeApiResources().catch(() => {
         console.error('Failed to close the PostgreSQL session pool cleanly.');
       });
