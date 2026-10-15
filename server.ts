@@ -19,6 +19,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+export default app;
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -264,17 +265,20 @@ Aturan ekstraksi:
   }
 });
 
+// Register API routes before the local development server is started so the
+// same Express app can be exported as a Vercel Function.
+try {
+  app.use('/api', createApiRouter());
+} catch (error) {
+  const reason = error instanceof Error ? error.message : 'API configuration is invalid.';
+  console.error(`API unavailable: ${reason}`);
+  app.use('/api', (_req, res) => {
+    res.status(503).json({ error: 'Layanan belum siap. Periksa konfigurasi server.' });
+  });
+}
+
 // Setup Vite or static serving
 async function startServer() {
-  try {
-    app.use('/api', createApiRouter());
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'API configuration is invalid.';
-    console.error(`API unavailable: ${reason}`);
-    app.use('/api', (_req, res) => {
-      res.status(503).json({ error: 'Layanan belum siap. Periksa konfigurasi server.' });
-    });
-  }
   const isProd = process.env.NODE_ENV === 'production';
   const distDir = path.resolve(__dirname, 'dist');
 
@@ -306,8 +310,10 @@ async function startServer() {
   process.once('SIGTERM', shutdown);
 }
 
-void startServer().catch(async (error: unknown) => {
-  await closeApiResources().catch(() => undefined);
-  console.error(error instanceof Error ? error.message : 'Server startup failed.');
-  process.exitCode = 1;
-});
+if (process.env.VERCEL !== '1' && !process.env.VERCEL_ENV) {
+  void startServer().catch(async (error: unknown) => {
+    await closeApiResources().catch(() => undefined);
+    console.error(error instanceof Error ? error.message : 'Server startup failed.');
+    process.exitCode = 1;
+  });
+}
