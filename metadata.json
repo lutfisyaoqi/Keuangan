@@ -1,0 +1,6 @@
+{
+  "name": "CatatUang - Pencatatan Keuangan Pribadi",
+  "description": "Aplikasi personal finance tracker sederhana, bersih, dan akurat untuk mencatat pemasukan, pengeluaran, dan saldo keuangan pribadi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
