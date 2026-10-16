@@ -1276,8 +1276,10 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
 
   router.post('/auth/password/reset', authRateLimit, asyncRoute(async (req, res) => {
     const input = z.object({
-      accessToken: z.string().min(20).max(4096),
-      refreshToken: z.string().min(20).max(4096),
+      // Token formats and lengths are managed by Supabase; validate presence and
+      // size here, then let Auth verify them cryptographically in setSession.
+      accessToken: z.string().min(1).max(8192),
+      refreshToken: z.string().min(1).max(8192),
       newPassword: z.string().min(8).max(128),
       confirmPassword: z.string().min(8).max(128),
     }).strict().safeParse(req.body);
