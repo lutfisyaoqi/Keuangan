@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "allowScripts": {
+    "@google/genai@2.24.0": true,
+    "esbuild@0.28.2": true,
+    "protobufjs@7.6.6": true
+  },
   "scripts": {
     "dev": "tsx server.ts",
     "dev:open": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-web.ps1",
