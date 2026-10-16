@@ -1,6 +1,6 @@
 import connectPgSimple from 'connect-pg-simple';
 import { createClient, type User } from '@supabase/supabase-js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import session, { type Store } from 'express-session';
 import { Pool } from 'pg';
@@ -186,6 +186,21 @@ function isReceiptPathForUser(receiptPath: unknown, userId: string): receiptPath
     && receiptPath.startsWith(`${userId}/`)
     && !receiptPath.includes('..')
     && !receiptPath.startsWith('/');
+}
+
+export function transactionRetentionCutoff(reference = new Date()) {
+  const year = reference.getUTCFullYear();
+  const month = reference.getUTCMonth() - 2;
+  const day = reference.getUTCDate();
+  const targetMonthEnd = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(day, targetMonthEnd))).toISOString().slice(0, 10);
+}
+
+function hasValidCronAuthorization(header: string | undefined, secret: string) {
+  if (!header) return false;
+  const supplied = Buffer.from(header);
+  const expected = Buffer.from(`Bearer ${secret}`);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
 function receiptMimeFromBytes(body: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
@@ -430,6 +445,94 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
   });
   router.use('/admin', adminApiRateLimit);
   router.use(protectAgainstCsrf(config.APP_URL));
+
+  router.get('/cron/purge-old-transactions', asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const secret = process.env.CRON_SECRET?.trim();
+    if (!secret) {
+      jsonError(res, 503, 'Jadwal penghapusan belum dikonfigurasi.');
+      return;
+    }
+    if (!hasValidCronAuthorization(req.get('authorization'), secret)) {
+      jsonError(res, 401, 'Tidak diizinkan.');
+      return;
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+      jsonError(res, 503, 'Layanan penghapusan belum dikonfigurasi.');
+      return;
+    }
+
+    const cutoffDate = transactionRetentionCutoff();
+    const adminClient = makeAdminClient();
+    const batchSize = 100;
+    let expiredRows: Array<{ id: string; user_id: string; receipt_path: string | null }>;
+    const { data, error } = await adminClient.from('transactions')
+      .select('id,user_id,receipt_path')
+      .lt('date', cutoffDate)
+      .order('date', { ascending: true })
+      .limit(batchSize);
+
+    if (error && isMissingReceiptSchema(error)) {
+      const legacyResult = await adminClient.from('transactions')
+        .select('id,user_id')
+        .lt('date', cutoffDate)
+        .order('date', { ascending: true })
+        .limit(batchSize);
+      if (legacyResult.error) {
+        console.error('Automatic transaction retention query failed');
+        jsonError(res, 503, 'Riwayat transaksi belum dapat dibersihkan.');
+        return;
+      }
+      expiredRows = (legacyResult.data ?? []).map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        receipt_path: null,
+      }));
+    } else if (error) {
+      console.error('Automatic transaction retention query failed');
+      jsonError(res, 503, 'Riwayat transaksi belum dapat dibersihkan.');
+      return;
+    } else {
+      expiredRows = (data ?? []).map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        receipt_path: row.receipt_path ?? null,
+      }));
+    }
+
+    if (expiredRows.length === 0) {
+      res.json({ deleted: 0, cutoffDate, morePending: false });
+      return;
+    }
+
+    const receiptPaths = [...new Set(expiredRows.flatMap((row) =>
+      isReceiptPathForUser(row.receipt_path, row.user_id) ? [row.receipt_path] : []))];
+    if (receiptPaths.length > 0) {
+      const { error: storageError } = await adminClient.storage.from(receiptBucket).remove(receiptPaths);
+      if (storageError) {
+        console.error('Automatic transaction receipt cleanup failed');
+        jsonError(res, 503, 'Foto bukti transaksi belum dapat dibersihkan.');
+        return;
+      }
+    }
+
+    const { data: deletedRows, error: deleteError } = await adminClient.from('transactions')
+      .delete()
+      .in('id', expiredRows.map((row) => row.id))
+      .lt('date', cutoffDate)
+      .select('id');
+    if (deleteError) {
+      console.error('Automatic transaction retention delete failed');
+      jsonError(res, 503, 'Riwayat transaksi belum dapat dibersihkan.');
+      return;
+    }
+
+    res.json({
+      deleted: deletedRows?.length ?? 0,
+      cutoffDate,
+      morePending: expiredRows.length === batchSize,
+    });
+  }));
 
   router.get('/public/service-status', asyncRoute(async (_req, res) => {
     const { data, error } = await makeAdminClient().from('app_settings')

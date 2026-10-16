@@ -19,10 +19,15 @@ Copy `.env.example` to `.env` and enter `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DA
 | `DATABASE_URL` | PostgreSQL connection string from **Project Settings → Database → Connection string**. Use direct or session pooler mode, with TLS enabled. `pg` uses it only for the Express session store, not transaction queries. |
 | `AUTH_SECRET` | Random Express session-signing secret. Generate locally with `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. Never commit it or send it in chat. |
 | `APP_URL` | The exact app origin used for CSRF validation and email confirmation redirects. Use `http://localhost:3000` locally and the HTTPS origin in production. |
+| `CRON_SECRET` | Random, server-only bearer secret required by the Vercel transaction cleanup job. Generate locally with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` and add it to Vercel Production Environment Variables. |
 
 `GEMINI_API_KEY` is optional. The existing smart transaction parser uses Gemini when set and falls back to local parsing when omitted; authentication and database access do not depend on it.
 
-`SUPABASE_SERVICE_ROLE_KEY` is optional for the user application and required only for the admin API. Keep it in the server environment; never expose it through a `VITE_*` variable or to the browser. See `README_ADMIN.md` before enabling the admin routes.
+`SUPABASE_SERVICE_ROLE_KEY` is optional for the user application and required for the admin API and scheduled transaction cleanup. Keep it in the server environment; never expose it through a `VITE_*` variable or to the browser. See `README_ADMIN.md` before enabling the admin routes.
+
+### Transaction retention
+
+On Vercel, the daily cron job removes transactions whose transaction date is more than two calendar months old, along with their receipt images. It runs at 00:00 UTC (07:00 WIB). Set a random, server-only `CRON_SECRET` in the Vercel Production environment; the job refuses to run without it. This deletion is permanent. Vercel Cron runs on production deployments only.
 
 If production runs behind a reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxies between the internet and this server (1 to 5). Leave it unset when the server is directly internet-facing; this keeps client IP based rate limits from trusting spoofed forwarded headers.
 

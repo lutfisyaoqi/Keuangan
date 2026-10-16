@@ -4,7 +4,128 @@ import { test } from 'node:test';
 import express from 'express';
 import session from 'express-session';
 import { apiService } from '../services/apiService';
-import { closeApiResources, createApiRouter, escapeCsvCell, validateTransactionInput } from '../../server/api';
+import { closeApiResources, createApiRouter, escapeCsvCell, transactionRetentionCutoff, validateTransactionInput } from '../../server/api';
+
+test('transaction retention cutoff clamps to the matching UTC calendar day', () => {
+  assert.equal(transactionRetentionCutoff(new Date('2026-10-31T23:59:00.000Z')), '2026-08-31');
+  assert.equal(transactionRetentionCutoff(new Date('2026-04-30T12:00:00.000Z')), '2026-02-28');
+  assert.equal(transactionRetentionCutoff(new Date('2024-04-30T12:00:00.000Z')), '2024-02-29');
+});
+
+test('transaction retention cron rejects calls without its configured secret', async (context) => {
+  const previousValues = new Map(['DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'AUTH_SECRET', 'APP_URL', 'CRON_SECRET']
+    .map((name) => [name, process.env[name]]));
+  process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:5432/test';
+  process.env.SUPABASE_URL = 'https://test-project.supabase.co';
+  process.env.SUPABASE_ANON_KEY = 'test-anon-key';
+  process.env.AUTH_SECRET = 'test-session-secret-which-is-not-real';
+  process.env.APP_URL = 'http://localhost:3000';
+  delete process.env.CRON_SECRET;
+
+  const app = express();
+  app.use('/api', createApiRouter({ sessionStore: new session.MemoryStore() }));
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
+    const listeningServer = app.listen(0, '127.0.0.1', () => resolve(listeningServer));
+    listeningServer.once('error', reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const url = `http://127.0.0.1:${address.port}/api/cron/purge-old-transactions`;
+
+  context.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    await closeApiResources();
+    for (const [name, value] of previousValues) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  const unconfigured = await fetch(url);
+  assert.equal(unconfigured.status, 503);
+  process.env.CRON_SECRET = 'a-test-cron-secret-that-is-long-enough';
+  const unauthorized = await fetch(url, { headers: { Authorization: 'Bearer incorrect' } });
+  assert.equal(unauthorized.status, 401);
+});
+
+test('transaction retention deletes expired rows and only their own receipt objects', async (context) => {
+  const previousValues = new Map(['DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'AUTH_SECRET', 'APP_URL', 'CRON_SECRET']
+    .map((name) => [name, process.env[name]]));
+  process.env.DATABASE_URL = 'postgresql://test:test@127.0.0.1:5432/test';
+  process.env.SUPABASE_URL = 'https://test-project.supabase.co';
+  process.env.SUPABASE_ANON_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  process.env.AUTH_SECRET = 'test-session-secret-which-is-not-real';
+  process.env.APP_URL = 'http://localhost:3000';
+  process.env.CRON_SECRET = 'a-test-cron-secret-that-is-long-enough';
+
+  const userId = '00000000-0000-4000-8000-000000000010';
+  const otherUserId = '00000000-0000-4000-8000-000000000011';
+  const expiredRows = [
+    { id: '00000000-0000-4000-8000-000000000012', user_id: userId, receipt_path: `${userId}/transaction/receipt.jpg` },
+    { id: '00000000-0000-4000-8000-000000000013', user_id: otherUserId, receipt_path: `${userId}/transaction/foreign.jpg` },
+  ];
+  const requests: Array<{ path: string; method: string; body: unknown }> = [];
+  const originalFetch = globalThis.fetch;
+  context.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString());
+    if (url.origin !== process.env.SUPABASE_URL) return originalFetch(input, init);
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? JSON.parse(String(init.body)) as unknown : null;
+    requests.push({ path: url.pathname, method, body });
+    let payload: unknown = {};
+    if (url.pathname === '/rest/v1/transactions' && method === 'GET') {
+      payload = expiredRows;
+    } else if (url.pathname === '/storage/v1/object/transaction-receipts' && method === 'DELETE') {
+      assert.deepEqual(body, { prefixes: [`${userId}/transaction/receipt.jpg`] });
+    } else if (url.pathname === '/rest/v1/transactions' && method === 'DELETE') {
+      payload = expiredRows.map(({ id }) => ({ id }));
+    } else {
+      return new Response(JSON.stringify({ message: 'Unexpected mocked endpoint.' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
+  const app = express();
+  app.use('/api', createApiRouter({ sessionStore: new session.MemoryStore() }));
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
+    const listeningServer = app.listen(0, '127.0.0.1', () => resolve(listeningServer));
+    listeningServer.once('error', reject);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  context.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    await closeApiResources();
+    for (const [name, value] of previousValues) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/cron/purge-old-transactions`, {
+    headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    deleted: expiredRows.length,
+    cutoffDate: transactionRetentionCutoff(),
+    morePending: false,
+  });
+  assert.equal(requests.findIndex((request) => request.method === 'DELETE' && request.path.startsWith('/storage/v1/object/'))
+    < requests.findIndex((request) => request.method === 'DELETE' && request.path === '/rest/v1/transactions'), true);
+
+});
 
 test('transaction validation accepts missing receipts and rejects invalid receipt metadata', () => {
   const userId = '00000000-0000-4000-8000-000000000001';

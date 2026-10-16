@@ -305,7 +305,7 @@ function DashboardPage() {
           />
         </section>
 
-        <p className="border-t border-slate-200/80 pt-5 text-center text-xs text-slate-500">CatatUang · Data keuangan tersimpan di akun Anda.</p>
+        <p className="border-t border-slate-200/80 pt-5 text-center text-xs text-slate-500">© 2026 lutfisaoqiramadhani. Hak cipta dilindungi.</p>
       </main>
 
       {/* Modals */}
