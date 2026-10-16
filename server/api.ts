@@ -1261,6 +1261,50 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     }
   }));
 
+  router.post('/auth/password/forgot', authRateLimit, asyncRoute(async (req, res) => {
+    const input = z.object({ email: emailSchema }).safeParse(req.body);
+    if (!input.success) { jsonError(res, 400, 'Masukkan alamat email yang valid.'); return; }
+    const redirectTo = new URL('/reset-password', config.APP_URL).toString();
+    const { error } = await makeClient().auth.resetPasswordForEmail(input.data.email, { redirectTo });
+    if (error) {
+      console.error('Password recovery request could not be sent.');
+      jsonError(res, 503, 'Email pemulihan belum dapat dikirim. Coba lagi beberapa saat.');
+      return;
+    }
+    res.status(202).json({ message: 'Jika email terdaftar, tautan pemulihan akan segera dikirim.' });
+  }));
+
+  router.post('/auth/password/reset', authRateLimit, asyncRoute(async (req, res) => {
+    const input = z.object({
+      accessToken: z.string().min(20).max(4096),
+      refreshToken: z.string().min(20).max(4096),
+      newPassword: z.string().min(8).max(128),
+      confirmPassword: z.string().min(8).max(128),
+    }).strict().safeParse(req.body);
+    if (!input.success || input.data.newPassword !== input.data.confirmPassword) {
+      jsonError(res, 400, input.success ? 'Konfirmasi password tidak sama.' : 'Tautan pemulihan atau password baru tidak valid.');
+      return;
+    }
+
+    const authClient = makeClient();
+    const { data, error: sessionError } = await authClient.auth.setSession({
+      access_token: input.data.accessToken,
+      refresh_token: input.data.refreshToken,
+    });
+    const recoveryAt = data.user?.recovery_sent_at ? Date.parse(data.user.recovery_sent_at) : 0;
+    if (sessionError || !data.user || !Number.isFinite(recoveryAt) || Date.now() - recoveryAt > 60 * 60 * 1000 || recoveryAt > Date.now() + 60_000) {
+      jsonError(res, 400, 'Tautan pemulihan tidak valid atau sudah kedaluwarsa. Minta tautan baru.');
+      return;
+    }
+    const { error: updateError } = await authClient.auth.updateUser({ password: input.data.newPassword });
+    if (updateError) {
+      jsonError(res, 400, 'Password belum dapat diperbarui. Pastikan password memenuhi kebijakan keamanan.');
+      return;
+    }
+    await authClient.auth.signOut({ scope: 'global' }).catch(() => undefined);
+    res.status(204).end();
+  }));
+
   router.post('/auth/login', authRateLimit, asyncRoute(async (req, res) => {
     const input = z.object({ email: emailSchema, password: z.string().min(1).max(128) }).safeParse(req.body);
     if (!input.success) {

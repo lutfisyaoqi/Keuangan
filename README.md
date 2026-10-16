@@ -35,6 +35,8 @@ The server rejects common example Supabase URLs and placeholder anon keys at sta
 
 ## Configure Supabase
 
+For password recovery, add `${APP_URL}/reset-password` to **Authentication → URL Configuration → Redirect URLs** (and add the production app origin). Keep the default recovery email link template enabled. The user follows the emailed link, chooses a new password on the public reset page, then signs in again.
+
 1. In **Authentication → Providers → Email**, enable Email/Password. For production, configure email confirmation and a working SMTP sender.
 2. In **Authentication → URL Configuration**, set the Site URL to your `APP_URL` and add that exact origin to the allowed redirect URLs. Registration uses `APP_URL` as its confirmation redirect.
 3. Use a Supabase PostgreSQL direct or **session-mode** pooler connection for `DATABASE_URL`. The Express session store needs a persistent PostgreSQL connection pool; transaction-mode pooler is not suitable.

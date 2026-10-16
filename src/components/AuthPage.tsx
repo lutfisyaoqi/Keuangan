@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Wallet } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
+import { apiService } from '../services/apiService';
 
 interface AuthPageProps {
   mode: 'login' | 'register';
@@ -18,6 +19,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState(() => (location.state as { message?: string } | null)?.message ?? '');
   const [pending, setPending] = useState(false);
+  const [forgotMode, setForgotMode] = useState(() => new URLSearchParams(location.search).get('forgot') === '1');
   const isRegister = mode === 'register';
   const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/dashboard';
 
@@ -64,6 +66,21 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
     }
   };
 
+  const handleForgotPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    setPending(true);
+    try {
+      const result = await apiService.requestPasswordReset(email.trim().toLowerCase());
+      setMessage(result.message);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Permintaan pemulihan belum dapat diproses.');
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 flex items-center justify-center selection:bg-blue-100 selection:text-blue-900">
       <div className="w-full max-w-md">
@@ -75,19 +92,26 @@ export const AuthPage: React.FC<AuthPageProps> = ({ mode }) => {
         </Link>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h1 className="text-2xl font-bold text-slate-900">{isRegister ? 'Buat akun' : 'Selamat datang kembali'}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{isRegister ? 'Buat akun' : forgotMode ? 'Lupa password?' : 'Selamat datang kembali'}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {isRegister ? 'Mulai catat dan kelola keuanganmu.' : 'Login untuk melihat catatan keuanganmu.'}
+            {isRegister ? 'Mulai catat dan kelola keuanganmu.' : forgotMode ? 'Masukkan email akunmu untuk menerima tautan pemulihan.' : 'Login untuk melihat catatan keuanganmu.'}
           </p>
 
           {error && <p role="alert" className="mt-5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">{error}</p>}
           {message && <p role="status" className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">{message}</p>}
 
-          {!message && <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          {!message && forgotMode && <form onSubmit={(event) => void handleForgotPassword(event)} className="mt-6 space-y-4">
+            <div><label htmlFor="recovery-email" className="mb-1.5 block text-sm font-medium text-slate-700">Email akun</label><input id="recovery-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" /></div>
+            <button type="submit" disabled={pending} className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{pending ? 'Mengirim...' : 'Kirim tautan pemulihan'}</button>
+            <button type="button" onClick={() => { setForgotMode(false); setError(''); setMessage(''); }} className="w-full text-sm font-semibold text-blue-700 hover:text-blue-800">Kembali ke login</button>
+          </form>}
+
+          {!message && !forgotMode && <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             {isRegister && <div>
               <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-slate-700">Nama</label>
               <input id="name" name="name" autoComplete="name" required minLength={2} maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" />
             </div>}
+            {!isRegister && <div className="-mt-2 text-right"><button type="button" onClick={() => { setForgotMode(true); setError(''); setMessage(''); }} className="text-sm font-semibold text-blue-700 hover:text-blue-800">Lupa password?</button></div>}
             <div>
               <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
               <input id="email" name="email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" />

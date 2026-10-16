@@ -14,6 +14,7 @@ import { AuthPage } from './components/AuthPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AdminPage } from './pages/AdminPage';
 import { AdminLoginPage } from './pages/AdminLoginPage';
+import { PasswordResetPage } from './pages/PasswordResetPage';
 import { Header } from './components/Header';
 import { DashboardStats } from './components/DashboardStats';
 import { TransactionFilters } from './components/TransactionFilters';
@@ -527,6 +528,7 @@ export default function App() {
         <Route path="/" element={<HomeRedirect />} />
         <Route path="/login" element={<AuthPage mode="login" />} />
         <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route path="/reset-password" element={<PasswordResetPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/transactions" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />

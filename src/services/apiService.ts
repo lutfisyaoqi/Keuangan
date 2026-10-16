@@ -149,6 +149,10 @@ export const apiService = {
   getSession: () => request<{ user: AuthUser | null }>('/auth/session'),
   login: (email: string, password: string) =>
     request<{ user: AuthUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  requestPasswordReset: (email: string) =>
+    request<{ message: string }>('/auth/password/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (accessToken: string, refreshToken: string, newPassword: string, confirmPassword: string) =>
+    request<void>('/auth/password/reset', { method: 'POST', body: JSON.stringify({ accessToken, refreshToken, newPassword, confirmPassword }) }),
   register: (name: string, email: string, password: string, confirmPassword: string) =>
     request<{ user: AuthUser | null; needsEmailConfirmation: boolean }>('/auth/register', {
       method: 'POST',
