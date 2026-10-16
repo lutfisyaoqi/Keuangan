@@ -42,6 +42,18 @@ type Database = {
         Update: { id?: boolean; announcement?: string | null; maintenance_mode?: boolean; updated_by?: string | null; updated_at?: string };
         Relationships: [];
       };
+      admin_service_errors: {
+        Row: { id: number; service: string; route: string; status_code: number; created_at: string };
+        Insert: { id?: number; service: string; route: string; status_code: number; created_at?: string };
+        Update: { id?: number; service?: string; route?: string; status_code?: number; created_at?: string };
+        Relationships: [];
+      };
+      admin_retention_runs: {
+        Row: { id: number; deleted_count: number; cutoff_date: string; created_at: string };
+        Insert: { id?: number; deleted_count: number; cutoff_date: string; created_at?: string };
+        Update: { id?: number; deleted_count?: number; cutoff_date?: string; created_at?: string };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -49,6 +61,9 @@ type Database = {
       admin_get_overview: { Args: Record<PropertyKey, never>; Returns: { total_accounts: number; new_accounts_30d: number; active_accounts: number; disabled_accounts: number; total_transactions: number }[] };
       admin_get_account_growth: { Args: Record<PropertyKey, never>; Returns: { day: string; accounts: number }[] };
       admin_get_storage_usage: { Args: Record<PropertyKey, never>; Returns: { object_count: number; total_bytes: number }[] };
+      admin_get_activity: { Args: { period_days: number }; Returns: { active_users: number; new_transactions: number; period_days: number }[] };
+      admin_get_retention_metrics: { Args: Record<PropertyKey, never>; Returns: { expiring_soon: number; overdue_pending: number; purged_last_30_days: number }[] };
+      admin_get_recent_errors: { Args: Record<PropertyKey, never>; Returns: { id: number; service: string; route: string; status_code: number; created_at: string }[] };
       delete_my_account: { Args: Record<PropertyKey, never>; Returns: undefined };
     };
     Enums: Record<string, never>;
@@ -262,6 +277,14 @@ function makeAdminClient() {
   return createClient<Database>(process.env.SUPABASE_URL!, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
+}
+
+async function recordServiceError(service: 'api' | 'database' | 'storage' | 'auth', route: string, statusCode: number) {
+  try {
+    await makeAdminClient().from('admin_service_errors').insert({ service, route: route.slice(0, 120), status_code: statusCode });
+  } catch {
+    console.error('Operational error could not be recorded.');
+  }
 }
 
 async function readAccountStatus(userId: string, accessToken: string) {
@@ -501,6 +524,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     }
 
     if (expiredRows.length === 0) {
+      await adminClient.from('admin_retention_runs').insert({ deleted_count: 0, cutoff_date: cutoffDate });
       res.json({ deleted: 0, cutoffDate, morePending: false });
       return;
     }
@@ -510,6 +534,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     if (receiptPaths.length > 0) {
       const { error: storageError } = await adminClient.storage.from(receiptBucket).remove(receiptPaths);
       if (storageError) {
+        void recordServiceError('storage', 'GET /cron/purge-old-transactions/receipt-cleanup', 503);
         console.error('Automatic transaction receipt cleanup failed');
         jsonError(res, 503, 'Foto bukti transaksi belum dapat dibersihkan.');
         return;
@@ -522,13 +547,16 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       .lt('date', cutoffDate)
       .select('id');
     if (deleteError) {
+      void recordServiceError('database', 'GET /cron/purge-old-transactions/delete', 503);
       console.error('Automatic transaction retention delete failed');
       jsonError(res, 503, 'Riwayat transaksi belum dapat dibersihkan.');
       return;
     }
 
+    const deletedCount = deletedRows?.length ?? 0;
+    await adminClient.from('admin_retention_runs').insert({ deleted_count: deletedCount, cutoff_date: cutoffDate });
     res.json({
-      deleted: deletedRows?.length ?? 0,
+      deleted: deletedCount,
       cutoffDate,
       morePending: expiredRows.length === batchSize,
     });
@@ -776,6 +804,25 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     });
   }));
 
+  router.get('/admin/activity', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+    const query = z.object({ period: z.preprocess(emptyQueryValueToUndefined, z.coerce.number().int().min(7).max(365).default(30)) }).safeParse(req.query);
+    if (!query.success) { jsonError(res, 400, 'Periode aktivitas tidak valid.'); return; }
+    const { data, error } = await req.userClient!.rpc('admin_get_activity', { period_days: query.data.period });
+    const result = Array.isArray(data) ? data[0] : null;
+    if (error || !result) { jsonError(res, 503, 'Aktivitas layanan belum dapat dimuat. Pastikan migrasi pemantauan admin sudah dijalankan.'); return; }
+    res.json({ activeUsers: Number(result.active_users), newTransactions: Number(result.new_transactions), periodDays: Number(result.period_days) });
+  }));
+
+  router.get('/admin/retention', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+    const [retention, errors] = await Promise.all([
+      req.userClient!.rpc('admin_get_retention_metrics'),
+      req.userClient!.rpc('admin_get_recent_errors'),
+    ]);
+    const counts = Array.isArray(retention.data) ? retention.data[0] : null;
+    if (retention.error || !counts || errors.error || !Array.isArray(errors.data)) { jsonError(res, 503, 'Pemantauan retensi atau error belum tersedia. Pastikan migrasi pemantauan admin sudah dijalankan.'); return; }
+    res.json({ expiringSoon: Number(counts.expiring_soon), overduePending: Number(counts.overdue_pending), purgedLast30Days: Number(counts.purged_last_30_days), recentErrors: errors.data.map((item) => ({ id: Number(item.id), service: item.service, route: item.route, statusCode: Number(item.status_code), createdAt: item.created_at })) });
+  }));
+
   router.get('/admin/storage-usage', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
     const { data, error } = await req.userClient!.rpc('admin_get_storage_usage');
     const usage = Array.isArray(data) ? data[0] : null;
@@ -794,12 +841,16 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       adminClient.storage.listBuckets(),
     ]);
     const checks = {
+      api: true,
       database: results[0].status === 'fulfilled' && !results[0].value.error,
       auth: results[1].status === 'fulfilled' && !results[1].value.error && Boolean(results[1].value.data.user),
       storage: results[2].status === 'fulfilled' && !results[2].value.error,
     };
-    const status = Object.values(checks).every(Boolean) ? 200 : 503;
-    res.status(status).json({ status: status === 200 ? 'ok' : 'degraded', checks });
+    if (!checks.database) void recordServiceError('database', 'GET /admin/health', 503);
+    if (!checks.auth) void recordServiceError('auth', 'GET /admin/health', 503);
+    if (!checks.storage) void recordServiceError('storage', 'GET /admin/health', 503);
+    const healthy = Object.values(checks).every(Boolean);
+    res.json({ status: healthy ? 'ok' : 'degraded', checks });
   }));
 
   router.get('/admin/users', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
@@ -809,16 +860,30 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       search: z.preprocess(emptyQueryValueToUndefined, z.string().trim().max(120).default('')),
       sortBy: z.preprocess(emptyQueryValueToUndefined, z.enum(['created_at', 'name', 'email', 'account_status']).default('created_at')),
       sortOrder: z.preprocess(emptyQueryValueToUndefined, z.enum(['asc', 'desc']).default('desc')),
+      status: z.preprocess(emptyQueryValueToUndefined, z.enum(['active', 'disabled']).optional()),
+      createdFrom: z.preprocess(emptyQueryValueToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+      createdTo: z.preprocess(emptyQueryValueToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
     }).safeParse(req.query);
     if (!query.success) {
       jsonError(res, 400, 'Paginasi atau pencarian akun tidak valid.');
       return;
     }
     const { page, pageSize, search } = query.data;
+    if (query.data.createdFrom && query.data.createdTo && query.data.createdFrom > query.data.createdTo) {
+      jsonError(res, 400, 'Rentang tanggal daftar akun tidak valid.');
+      return;
+    }
     let request = makeAdminClient().from('users')
       .select('id,name,email,created_at,account_status,disabled_reason', { count: 'exact' });
     const safeSearch = search.replace(/[,%()\\.:!*"]/g, ' ').trim();
     if (safeSearch) request = request.or(`name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%`);
+    if (query.data.status) request = request.eq('account_status', query.data.status);
+    if (query.data.createdFrom) request = request.gte('created_at', `${query.data.createdFrom}T00:00:00.000Z`);
+    if (query.data.createdTo) {
+      const exclusiveEnd = new Date(`${query.data.createdTo}T00:00:00.000Z`);
+      exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+      request = request.lt('created_at', exclusiveEnd.toISOString());
+    }
     const { data, error, count } = await request
       .order(query.data.sortBy, { ascending: query.data.sortOrder === 'asc' })
       .range((page - 1) * pageSize, page * pageSize - 1);
@@ -1107,9 +1172,19 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
   }));
 
   router.get('/admin/export/metrics', requireAuth, requireAdmin, asyncRoute(async (req, res) => {
-    const { data, error } = await req.userClient!.rpc('admin_get_overview');
+    const query = z.object({ period: z.coerce.number().int().min(7).max(365).default(30) }).safeParse(req.query);
+    if (!query.success) { jsonError(res, 400, 'Periode ekspor tidak valid.'); return; }
+    const [overviewResult, activityResult, retentionResult] = await Promise.all([
+      req.userClient!.rpc('admin_get_overview'),
+      req.userClient!.rpc('admin_get_activity', { period_days: query.data.period }),
+      req.userClient!.rpc('admin_get_retention_metrics'),
+    ]);
+    const data = overviewResult.data;
+    const error = overviewResult.error || activityResult.error || retentionResult.error;
     const overview = Array.isArray(data) ? data[0] : null;
-    if (error || !overview) {
+    const activity = Array.isArray(activityResult.data) ? activityResult.data[0] : null;
+    const retention = Array.isArray(retentionResult.data) ? retentionResult.data[0] : null;
+    if (error || !overview || !activity || !retention) {
       jsonError(res, 503, 'Metrik agregat belum dapat diekspor.');
       return;
     }
@@ -1120,6 +1195,11 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       ['active_accounts', overview.active_accounts],
       ['disabled_accounts', overview.disabled_accounts],
       ['total_transactions', overview.total_transactions],
+      [`active_users_${query.data.period}d`, activity.active_users],
+      [`new_transactions_${query.data.period}d`, activity.new_transactions],
+      ['transactions_expiring_soon', retention.expiring_soon],
+      ['expired_transactions_pending_purge', retention.overdue_pending],
+      ['transactions_purged_30d', retention.purged_last_30_days],
     ].map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="catatuang-admin-metrics.csv"');
@@ -1612,6 +1692,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       upsert: false,
     });
     if (uploadError) {
+      void recordServiceError('storage', 'POST /transactions/:id/receipt', 503);
       const missingBucket = /bucket not found|bucket does not exist/i.test(uploadError.message);
       jsonError(res, 503, missingBucket
         ? 'Bucket bukti transaksi belum tersedia. Jalankan migration SQL bukti transaksi di Supabase.'
@@ -1829,6 +1910,7 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
       console.error('API request failed');
     }
     const status = databaseUnavailable ? 503 : 500;
+    void recordServiceError(databaseUnavailable ? 'database' : 'api', `${req.method} ${req.path}`, status);
     jsonError(res, status, status === 503 ? 'Layanan sementara tidak tersedia.' : 'Terjadi kesalahan internal. Coba lagi nanti.');
   });
   return router;

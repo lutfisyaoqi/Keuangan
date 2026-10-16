@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { validateInitialBalance, validateTransaction } from './validation';
 import { calculateStats } from './calculations';
+import { createFinancialSummaryCsv } from './financeExport';
 import { Transaction } from '../types/finance';
 
 const validExpense = {
@@ -46,6 +47,24 @@ test('calculates initial balance plus income minus expense', () => {
   const stats = calculateStats(100_000, transactions);
   assert.equal(stats.currentBalance, 1_370_000);
   assert.equal(stats.transactionCount, 2);
+});
+
+test('exports a spreadsheet-compatible financial summary and safely escapes descriptions', () => {
+  const transaction: Transaction = {
+    id: 'income-1',
+    ...validExpense,
+    amount: 1_300_000,
+    type: 'income',
+    description: '=HYPERLINK("https://example.com")',
+    createdAt: '2026-09-30T00:00:00.000Z',
+    updatedAt: '2026-09-30T00:00:00.000Z',
+  };
+  const csv = createFinancialSummaryCsv(calculateStats(100_000, [transaction]), [transaction]);
+
+  assert.ok(csv.startsWith('\uFEFF"Ringkasan Keuangan"'));
+  assert.ok(csv.includes('"Saldo saat ini";1400000'));
+  assert.ok(csv.includes(`"'=HYPERLINK(""https://example.com"")"`));
+  assert.ok(csv.includes('"Pemasukan";"Makanan";'));
 });
 
 test('rejects negative initial balance', () => {

@@ -4,11 +4,13 @@ Dokumen ini menjelaskan batas akses panel admin CatatUang. Panel UI tersedia di 
 
 ## Menyiapkan Tahap 1
 
-1. Jalankan migrasi berurutan secara manual di **Supabase Dashboard → SQL Editor → New query**: `supabase/migrations/20261013220000_add_admin_panel.sql`, `supabase/migrations/20261013230000_restrict_user_status_updates.sql`, lalu `supabase/migrations/20261014060000_add_admin_dashboard_aggregates.sql`. Tinjau isinya terlebih dahulu. Aplikasi tidak menjalankan migrasi.
+1. Jalankan migrasi berurutan secara manual di **Supabase Dashboard → SQL Editor → New query**: `supabase/migrations/20261013220000_add_admin_panel.sql`, `supabase/migrations/20261013230000_restrict_user_status_updates.sql`, `supabase/migrations/20261014060000_add_admin_dashboard_aggregates.sql`, lalu `supabase/migrations/20261016120000_admin_activity_monitoring.sql`. Tinjau isinya terlebih dahulu. Aplikasi tidak menjalankan migrasi.
 2. Buat akun owner melalui halaman pendaftaran aplikasi seperti pengguna biasa.
 3. Di SQL Editor, jalankan perintah contoh pada bagian akhir migrasi setelah mengganti `owner@example.com` dengan email akun owner. Perintah itu menetapkan role langsung pada `public.admin_users`; tidak ada endpoint pendaftaran admin.
 4. Atur `SUPABASE_SERVICE_ROLE_KEY` pada environment server saja, lalu restart backend. Untuk pengembangan lokal, `server.ts` memuat `.env.local` lebih dahulu lalu `.env`; nilai environment proses yang sudah ada tetap menang. Jangan menaruhnya pada `VITE_*`, frontend, atau source control. Key ini hanya dipakai backend untuk verifikasi role dan administrasi akun; fungsi metrik tetap memverifikasi identitas melalui JWT.
 5. Admin masuk melalui halaman terpisah `/admin/login`. Backend memverifikasi kredensial, status akun, dan role sebelum membuat sesi admin. Login pengguna biasa tetap berada di `/login`; akun tanpa role admin ditolak dan sesi pengguna biasa yang tertinggal dibersihkan. Sesi admin berakhir setelah 30 menit tidak aktif.
+
+Migrasi aktivitas admin menambahkan ringkasan pengguna aktif dan transaksi per periode, filter akun menurut status/tanggal daftar, health check API/database/Auth/Storage, serta log error operasional tanpa isi transaksi atau data sensitif. Ekspor CSV hanya berisi metrik agregat. Riwayat retensi menghitung transaksi yang mendekati batas dan mencatat jumlah yang dihapus oleh cron setelah migrasi ini diterapkan; data penghapusan sebelum itu tidak dapat dihitung kembali.
 
 Jika login menampilkan pesan sementara yang generik, periksa log server: server membedakan key server yang belum dikonfigurasi dari tabel/migrasi admin yang belum tersedia tanpa menampilkan rincian tersebut ke browser. Nilai lokal pada `.env.local` atau `.env` tidak disimpan di source control; `.env.local` memiliki prioritas atas `.env`, dan environment proses memiliki prioritas atas keduanya.
 

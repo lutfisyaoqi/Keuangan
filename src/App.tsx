@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { Megaphone, Wrench } from 'lucide-react';
+import { Download, Megaphone, Wrench } from 'lucide-react';
 import { Transaction, TransactionType, FilterType } from './types/finance';
 import { BalanceStats } from './utils/calculations';
 import { apiService } from './services/apiService';
@@ -24,6 +24,8 @@ import { DeleteConfirmModal } from './components/DeleteConfirmModal';
 import { SmartInputBanner } from './components/SmartInputBanner';
 import { TransactionDetailModal } from './components/TransactionDetailModal';
 import { ParsedTransactionData } from './services/aiService';
+import { createFinancialSummaryCsv } from './utils/financeExport';
+import { FinanceTools } from './components/FinanceTools';
 
 function UserServiceNotices() {
   const [notice, setNotice] = useState<{ announcement: string | null; maintenanceMode: boolean } | null>(null);
@@ -66,6 +68,7 @@ function DashboardPage() {
   });
   const [totalFiltered, setTotalFiltered] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [summaryError, setSummaryError] = useState('');
   const [transactionsError, setTransactionsError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -145,6 +148,53 @@ function DashboardPage() {
     setEndDate('');
     setPage(1);
   }, []);
+
+  const handleExportFinancialSummary = async () => {
+    setIsExporting(true);
+    setActionError('');
+    try {
+      const summary = await apiService.getDashboardSummary();
+      const exportStats: BalanceStats = {
+        ...summary,
+        currentBalance: summary.initialBalance + summary.totalIncome - summary.totalExpense,
+      };
+      const pageSize = 50;
+      let page = 1;
+      let total = 0;
+      const allTransactions: Transaction[] = [];
+
+      do {
+        const result = await apiService.listTransactions({
+          page,
+          pageSize,
+          search: '',
+          type: 'all',
+          category: 'all',
+          startDate: '',
+          endDate: '',
+        });
+        allTransactions.push(...result.transactions);
+        total = result.total;
+        page++;
+      } while (allTransactions.length < total && allTransactions.length > 0);
+
+      const blob = new Blob([createFinancialSummaryCsv(exportStats, allTransactions)], {
+        type: 'text/csv;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `ringkasan-keuangan-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Ringkasan keuangan belum dapat diunduh.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // Transaction Handlers
   const handleOpenAddModal = () => {
@@ -237,7 +287,19 @@ function DashboardPage() {
             <h2 className="text-xl font-bold text-slate-900">Halo, {user?.name}</h2>
             <p className="mt-1 text-sm text-slate-500">Ringkasan keuangan pribadimu.</p>
           </div>
-          <Link to="/settings/profile" className="text-sm font-medium text-blue-700 hover:text-blue-800">Pengaturan akun</Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleExportFinancialSummary()}
+              disabled={isExporting || isLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 shadow-xs transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Unduh ringkasan dan seluruh transaksi dalam format CSV yang dapat dibuka di Excel"
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? 'Menyiapkan...' : 'Unduh Excel (CSV)'}
+            </button>
+            <Link to="/settings/profile" className="text-sm font-medium text-blue-700 hover:text-blue-800">Pengaturan akun</Link>
+          </div>
         </div>
 
         {actionError && <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -263,6 +325,8 @@ function DashboardPage() {
         <section aria-label="Input Bahasa Alami AI">
           <SmartInputBanner onParsed={handleAiParsed} />
         </section>
+
+        <FinanceTools userId={user?.id ?? ''} transactionCount={stats.transactionCount} onRefresh={() => void refreshDashboard()} onError={setActionError} />
 
         {/* Transactions Section */}
         <section className="space-y-4" aria-label="Riwayat Transaksi">

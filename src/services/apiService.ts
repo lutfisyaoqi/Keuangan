@@ -40,6 +40,9 @@ export interface AdminOverview {
   disabledAccounts: number;
   totalTransactions: number;
 }
+export interface AdminActivity { activeUsers: number; newTransactions: number; periodDays: number }
+export interface AdminRecentError { id: number; service: string; route: string; statusCode: number; createdAt: string }
+export interface AdminRetention { expiringSoon: number; overduePending: number; purgedLast30Days: number; recentErrors: AdminRecentError[] }
 
 export interface AdminUser {
   id: string;
@@ -203,6 +206,8 @@ export const apiService = {
   checkAdmin: () => request<{ authenticated: true; role: AdminRole }>('/admin/login-check', { method: 'POST' }),
   getAdminOverview: () => request<AdminOverview>('/admin/overview'),
   getAdminAccountGrowth: () => request<{ points: AdminGrowthPoint[] }>('/admin/account-growth'),
+  getAdminActivity: (period: number) => request<AdminActivity>(`/admin/activity?period=${period}`),
+  getAdminRetention: () => request<AdminRetention>('/admin/retention'),
   getAdminStorageUsage: () => request<AdminStorageUsage>('/admin/storage-usage'),
   getAdminHealth: () => request<{ status: 'ok' | 'degraded'; checks: Record<string, boolean> }>('/admin/health'),
   async listAdminUsers(
@@ -211,9 +216,13 @@ export const apiService = {
     search: string,
     sortBy: 'created_at' | 'name' | 'email' | 'account_status' = 'created_at',
     sortOrder: 'asc' | 'desc' = 'desc',
+    filters: { status?: 'active' | 'disabled'; createdFrom?: string; createdTo?: string } = {},
   ) {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), sortBy, sortOrder });
     if (search.trim()) params.set('search', search.trim());
+    if (filters.status) params.set('status', filters.status);
+    if (filters.createdFrom) params.set('createdFrom', filters.createdFrom);
+    if (filters.createdTo) params.set('createdTo', filters.createdTo);
     return request<{ users: AdminUser[]; total: number; page: number; pageSize: number }>(`/admin/users?${params}`);
   },
   disableAdminUser: (id: string, reason: string) =>
@@ -243,8 +252,8 @@ export const apiService = {
     request<{ enabled: boolean }>('/admin/settings/maintenance', {
       method: 'PATCH', body: JSON.stringify({ enabled, reason }),
     }),
-  exportAdminMetrics: async () => {
-    const response = await fetch('/api/admin/export/metrics', { credentials: 'same-origin' });
+  exportAdminMetrics: async (period = 30) => {
+    const response = await fetch(`/api/admin/export/metrics?period=${period}`, { credentials: 'same-origin' });
     if (!response.ok) {
       const result = await response.json().catch(() => ({})) as { error?: unknown };
       throw new Error(typeof result.error === 'string' ? result.error : 'Ekspor metrik belum dapat diunduh.');

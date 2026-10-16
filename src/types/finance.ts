@@ -26,6 +26,7 @@ export const EXPENSE_CATEGORIES = [
   'Hiburan',
   'Kesehatan',
   'Pendidikan',
+  'Tabungan',
   'Lainnya',
 ] as const;
 

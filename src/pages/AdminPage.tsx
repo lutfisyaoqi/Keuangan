@@ -7,7 +7,7 @@ import {
 import { Link, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import {
-  AdminAuditLog, AdminGrowthPoint, AdminOverview, AdminRole, AdminSettings, AdminStorageUsage,
+  AdminActivity, AdminAuditLog, AdminGrowthPoint, AdminOverview, AdminRetention, AdminRole, AdminSettings, AdminStorageUsage,
   AdminUser, ApiRequestError, apiService,
 } from '../services/apiService';
 
@@ -46,8 +46,8 @@ const auditActions = [
 
 function displayError(error: unknown, fallback: string) {
   if (error instanceof ApiRequestError && error.status === 503) {
-    if (/migrasi fitur admin terbaru/i.test(error.message)) {
-      return `${error.message} Salin dan jalankan file migrasi agregat terbaru melalui Supabase SQL Editor.`;
+    if (/migrasi (fitur admin terbaru|pemantauan admin)/i.test(error.message)) {
+      return `${error.message} Jalankan migrasi SQL dashboard admin terbaru melalui Supabase SQL Editor.`;
     }
     return `${error.message} Periksa konfigurasi service role server dan pastikan migrasi admin sudah dijalankan.`;
   }
@@ -163,6 +163,9 @@ export const AdminPage: React.FC = () => {
   const [growth, setGrowth] = useState<AdminGrowthPoint[] | null>(null);
   const [storageUsage, setStorageUsage] = useState<AdminStorageUsage | null>(null);
   const [health, setHealth] = useState<{ status: 'ok' | 'degraded'; checks: Record<string, boolean> } | null>(null);
+  const [activity, setActivity] = useState<AdminActivity | null>(null);
+  const [retention, setRetention] = useState<AdminRetention | null>(null);
+  const [activityPeriod, setActivityPeriod] = useState(30);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [usersTotal, setUsersTotal] = useState(0);
@@ -172,6 +175,9 @@ export const AdminPage: React.FC = () => {
   const [userSort, setUserSort] = useState<'created_at' | 'name' | 'email' | 'account_status'>('created_at');
   const [userSortOrder, setUserSortOrder] = useState<'asc' | 'desc'>('desc');
   const [usersLoading, setUsersLoading] = useState(false);
+  const [userStatus, setUserStatus] = useState<'' | 'active' | 'disabled'>('');
+  const [createdFrom, setCreatedFrom] = useState('');
+  const [createdTo, setCreatedTo] = useState('');
 
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
@@ -216,11 +222,13 @@ export const AdminPage: React.FC = () => {
 
   const refreshOverview = useCallback(async () => {
     setPageLoading(true);
-    const [overviewResult, growthResult, usageResult, healthResult] = await Promise.allSettled([
+    const [overviewResult, growthResult, usageResult, healthResult, activityResult, retentionResult] = await Promise.allSettled([
       apiService.getAdminOverview(),
       apiService.getAdminAccountGrowth(),
       apiService.getAdminStorageUsage(),
       apiService.getAdminHealth(),
+      apiService.getAdminActivity(activityPeriod),
+      apiService.getAdminRetention(),
     ]);
     const failures: string[] = [];
     if (overviewResult.status === 'fulfilled') setOverview(overviewResult.value);
@@ -231,15 +239,21 @@ export const AdminPage: React.FC = () => {
     else failures.push(displayError(usageResult.reason, 'Penggunaan storage belum dapat dimuat.'));
     if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
     else failures.push(displayError(healthResult.reason, 'Status layanan belum dapat dimuat.'));
+    if (activityResult.status === 'fulfilled') setActivity(activityResult.value);
+    else failures.push(displayError(activityResult.reason, 'Aktivitas layanan belum dapat dimuat.'));
+    if (retentionResult.status === 'fulfilled') setRetention(retentionResult.value);
+    else failures.push(displayError(retentionResult.reason, 'Informasi retensi dan error belum dapat dimuat.'));
     setError(failures.join(' '));
     setPageLoading(false);
-  }, []);
+  }, [activityPeriod]);
 
   const refreshUsers = useCallback(async () => {
     setUsersLoading(true);
     setError('');
     try {
-      const result = await apiService.listAdminUsers(usersPage, userPageSize, search, userSort, userSortOrder);
+      const result = await apiService.listAdminUsers(usersPage, userPageSize, search, userSort, userSortOrder, {
+        ...(userStatus ? { status: userStatus } : {}), ...(createdFrom ? { createdFrom } : {}), ...(createdTo ? { createdTo } : {}),
+      });
       setUsers(result.users);
       setUsersTotal(result.total);
     } catch (requestError) {
@@ -247,7 +261,7 @@ export const AdminPage: React.FC = () => {
     } finally {
       setUsersLoading(false);
     }
-  }, [search, userSort, userSortOrder, usersPage]);
+  }, [createdFrom, createdTo, search, userSort, userSortOrder, userStatus, usersPage]);
 
   const refreshAudit = useCallback(async () => {
     setAuditLoading(true);
@@ -389,7 +403,7 @@ export const AdminPage: React.FC = () => {
     setExportPending(true);
     setError('');
     try {
-      const blob = await apiService.exportAdminMetrics();
+      const blob = await apiService.exportAdminMetrics(activityPeriod);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -464,11 +478,14 @@ export const AdminPage: React.FC = () => {
         {notice && <div role="status" className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}
 
         {section === 'overview' && <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-semibold text-slate-700">Aktivitas periode</p><select aria-label="Periode aktivitas layanan" value={activityPeriod} onChange={(event) => setActivityPeriod(Number(event.target.value))} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value={7}>7 hari</option><option value={30}>30 hari</option><option value={90}>90 hari</option></select></div>
           <section aria-label="Metrik agregat" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {pageLoading && !overview ? Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-32 rounded-2xl" />) : overview ? <>
               <MetricCard label="Total akun" value={overview.totalAccounts.toLocaleString('id-ID')} icon={Users} />
               <MetricCard label="Akun baru · 30 hari" value={overview.newAccounts30d.toLocaleString('id-ID')} icon={Activity} tone="green" />
               <MetricCard label="Pengguna aktif" value={overview.activeAccounts.toLocaleString('id-ID')} icon={ShieldCheck} tone="green" />
+              <MetricCard label={`Aktif Â· ${activityPeriod} hari`} value={(activity?.activeUsers ?? 0).toLocaleString('id-ID')} icon={Activity} tone="green" />
+              <MetricCard label={`Transaksi baru Â· ${activityPeriod} hari`} value={(activity?.newTransactions ?? 0).toLocaleString('id-ID')} icon={ClipboardList} tone="blue" />
               <MetricCard label="Total transaksi · agregat" value={overview.totalTransactions.toLocaleString('id-ID')} icon={ClipboardList} tone="slate" />
               <MetricCard label="Pemakaian storage" value={storageUsage ? formatBytes(storageUsage.totalBytes) : 'Belum tersedia'} icon={Database} tone="amber" />
             </> : <div className="col-span-full rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Metrik belum tersedia. Periksa service role server dan migrasi admin.</div>}
@@ -482,14 +499,18 @@ export const AdminPage: React.FC = () => {
             <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="flex items-start justify-between gap-3"><div><h2 className="font-bold text-slate-900">Status layanan</h2><p className="mt-1 text-sm text-slate-500">Pemeriksaan database, Auth, dan Storage.</p></div><button type="button" onClick={() => void refreshOverview()} aria-label="Segarkan status layanan" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"><RefreshCw className={`h-4 w-4 ${pageLoading ? 'animate-spin' : ''}`} /></button></div>
               <div className="mt-5 space-y-3">
-                {(['database', 'auth', 'storage'] as const).map((service) => {
+                {(['api', 'database', 'auth', 'storage'] as const).map((service) => {
                   const ok = health?.checks[service] ?? false;
-                  const label = service === 'database' ? 'Database' : service === 'auth' ? 'Supabase Auth' : 'Storage';
+                  const label = service === 'api' ? 'API' : service === 'database' ? 'Database' : service === 'auth' ? 'Supabase Auth' : 'Storage';
                   return <div key={service} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"><span className="text-sm font-medium text-slate-700">{label}</span>{health ? <span className={`inline-flex items-center gap-1 text-xs font-semibold ${ok ? 'text-emerald-700' : 'text-rose-700'}`}>{ok ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}{ok ? 'Tersedia' : 'Gangguan'}</span> : pageLoading ? <Skeleton className="h-4 w-20" /> : <span className="text-xs text-slate-500">Belum diperiksa</span>}</div>;
                 })}
                 <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-900">{storageUsage ? `${storageUsage.objectCount.toLocaleString('id-ID')} berkas terhitung; hanya jumlah dan ukuran total yang ditampilkan.` : 'Pemakaian storage agregat memerlukan migrasi dashboard admin terbaru.'}</p>
               </div>
             </article>
+          </section>
+          <section className="grid gap-6 xl:grid-cols-2">
+            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-900">Retensi transaksi 2 bulan</h2><p className="mt-1 text-sm text-slate-500">Transaksi yang mendekati batas retensi dan hasil penghapusan 30 hari terakhir.</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><MetricCard label="Kedaluwarsa 30 hari" value={(retention?.expiringSoon ?? 0).toLocaleString('id-ID')} icon={Activity} tone="amber"/><MetricCard label="Menunggu penghapusan" value={(retention?.overduePending ?? 0).toLocaleString('id-ID')} icon={Database} tone="amber"/><MetricCard label="Terhapus 30 hari" value={(retention?.purgedLast30Days ?? 0).toLocaleString('id-ID')} icon={Trash2} tone="slate"/></div></article>
+            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="font-bold text-slate-900">Error layanan terbaru</h2><p className="mt-1 text-sm text-slate-500">Ringkasan error API/database dan kegagalan storage, tanpa data pengguna.</p><div className="mt-4 divide-y divide-slate-100">{retention?.recentErrors.length ? retention.recentErrors.slice(0, 8).map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"><span className="font-medium text-slate-700">{item.service.toUpperCase()} Â· {item.route}</span><span className="text-rose-700">HTTP {item.statusCode} Â· {formatDate(item.createdAt)}</span></div>) : <p className="py-4 text-sm text-slate-500">Belum ada error tercatat.</p>}</div></article>
           </section>
           <p className="text-xs text-slate-500">Ekspor dan kartu ringkasan hanya memuat metrik agregat anonim. Tidak ada rincian transaksi yang ditampilkan.</p>
         </div>}
@@ -497,10 +518,13 @@ export const AdminPage: React.FC = () => {
         {section === 'users' && <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-end sm:justify-between">
             <div><h2 className="font-bold text-slate-900">Daftar akun</h2><p className="mt-1 text-sm text-slate-500">{pageRange}; email dan status verifikasi, tanpa informasi keuangan.</p></div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_160px_130px]">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <label className="relative"><span className="sr-only">Cari nama atau email</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input type="search" maxLength={120} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Cari nama atau email" className="w-full rounded-lg border border-slate-300 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100" /></label>
               <label className="sr-only" htmlFor="account-sort">Urutkan akun</label><select id="account-sort" value={userSort} onChange={(event) => { setUsersPage(1); setUserSort(event.target.value as typeof userSort); }} className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm"><option value="created_at">Tanggal dibuat</option><option value="name">Nama</option><option value="email">Email</option><option value="account_status">Status</option></select>
               <button type="button" onClick={() => { setUsersPage(1); setUserSortOrder((order) => order === 'asc' ? 'desc' : 'asc'); }} className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-700">Urutan: {userSortOrder === 'asc' ? 'Naik' : 'Turun'}</button>
+              <select aria-label="Filter status akun" value={userStatus} onChange={(event) => { setUsersPage(1); setUserStatus(event.target.value as typeof userStatus); }} className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm"><option value="">Semua status</option><option value="active">Aktif</option><option value="disabled">Nonaktif</option></select>
+              <label className="text-xs text-slate-500">Dibuat dari<input aria-label="Akun dibuat dari tanggal" type="date" value={createdFrom} onChange={(event) => { setUsersPage(1); setCreatedFrom(event.target.value); }} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-700" /></label>
+              <label className="text-xs text-slate-500">Sampai tanggal<input aria-label="Akun dibuat sampai tanggal" type="date" value={createdTo} onChange={(event) => { setUsersPage(1); setCreatedTo(event.target.value); }} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm text-slate-700" /></label>
             </div>
           </div>
           <div className="overflow-x-auto">
