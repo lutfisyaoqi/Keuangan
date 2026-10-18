@@ -18,9 +18,9 @@ export default async function handler(req: Request, res: Response) {
   requestUrl.searchParams.delete('__api_path');
   req.url = `/api/${apiPath}${requestUrl.search}`;
   try {
-    // `server.js` is the NodeNext runtime path for the source `server.ts`.
-    // Naming the file avoids Node ESM interpreting `server/` as a folder.
-    const { default: app } = await import('../server.js');
+    // `app.js` is the NodeNext runtime path for `server/app.ts`.
+    // This entry keeps Vite/Rolldown out of the Vercel API bundle.
+    const { default: app } = await import('../server/app.js');
     return app(req, res);
   } catch (error) {
     console.error('Vercel API app initialization failed:', error);
