@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createServer as createViteServer } from 'vite';
 import { rateLimit } from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
 import { closeApiResources, createApiRouter } from './server/api.js';
@@ -320,17 +319,21 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
   const distDir = path.resolve(__dirname, 'dist');
 
-  let viteServer: Awaited<ReturnType<typeof createViteServer>> | undefined;
+  let closeViteServer: (() => Promise<void>) | undefined;
   if (isProd && fs.existsSync(distDir)) {
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distDir, 'index.html'));
     });
   } else {
-    viteServer = await createViteServer({
+    // Vite/Rolldown has platform-specific native bindings. Load it only for
+    // the local development server; Vercel functions only need the API app.
+    const { createServer: createViteServer } = await import('vite');
+    const viteServer = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
+    closeViteServer = () => viteServer.close();
     app.use(viteServer.middlewares);
   }
 
@@ -348,7 +351,7 @@ async function startServer() {
 
   const shutdown = () => {
     httpServer.close(() => {
-      void viteServer?.close();
+      void closeViteServer?.();
       void closeApiResources().catch(() => {
         console.error('Failed to close the PostgreSQL session pool cleanly.');
       });
