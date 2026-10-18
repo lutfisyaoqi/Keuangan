@@ -1,6 +1,6 @@
 import React from 'react';
 import { Search, Filter, X, Calendar } from 'lucide-react';
-import { EXPENSE_CATEGORIES, FilterType, INCOME_CATEGORIES } from '../types/finance';
+import { EXPENSE_CATEGORIES, FilterType, INCOME_CATEGORIES } from '../types/finance.js';
 
 interface TransactionFiltersProps {
   searchQuery: string;

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { validateInitialBalance, validateTransaction } from './validation';
-import { calculateStats } from './calculations';
-import { createFinancialSummaryCsv } from './financeExport';
-import { Transaction } from '../types/finance';
+import { validateInitialBalance, validateTransaction } from './validation.js';
+import { calculateStats } from './calculations.js';
+import { createFinancialSummaryCsv } from './financeExport.js';
+import { Transaction } from '../types/finance.js';
 
 const validExpense = {
   date: '2026-09-30',

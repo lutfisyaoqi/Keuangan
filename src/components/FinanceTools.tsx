@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bell, CalendarClock, Download, Plus, Target, Trash2, Wallet } from 'lucide-react';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, Transaction, TransactionType } from '../types/finance';
-import { apiService } from '../services/apiService';
-import { getTodayDateString } from '../utils/formatters';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, Transaction, TransactionType } from '../types/finance.js';
+import { apiService } from '../services/apiService.js';
+import { getTodayDateString } from '../utils/formatters.js';
 
 type Budget = { category: string; amount: number };
 type Goal = { id: string; name: string; target: number; saved: number };

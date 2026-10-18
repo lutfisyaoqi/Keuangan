@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthProvider';
-import { ApiRequestError, apiService } from '../services/apiService';
+import { useAuth } from '../auth/AuthProvider.js';
+import { ApiRequestError, apiService } from '../services/apiService.js';
 
 export const AdminLoginPage: React.FC = () => {
   const { user, loading: sessionLoading, updateUser } = useAuth();

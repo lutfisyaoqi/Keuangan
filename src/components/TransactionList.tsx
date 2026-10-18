@@ -1,7 +1,7 @@
 import React from 'react';
-import { Transaction } from '../types/finance';
-import { TransactionItem } from './TransactionItem';
-import { EmptyState } from './EmptyState';
+import { Transaction } from '../types/finance.js';
+import { TransactionItem } from './TransactionItem.js';
+import { EmptyState } from './EmptyState.js';
 import { ArrowUpDown } from 'lucide-react';
 
 interface TransactionListProps {

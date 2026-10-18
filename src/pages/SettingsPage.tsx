@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthProvider';
-import { apiService } from '../services/apiService';
+import { useAuth } from '../auth/AuthProvider.js';
+import { apiService } from '../services/apiService.js';
 
 interface SettingsPageProps {
   mode: 'profile' | 'security';

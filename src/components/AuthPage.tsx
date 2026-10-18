@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Wallet } from 'lucide-react';
-import { useAuth } from '../auth/AuthProvider';
-import { apiService } from '../services/apiService';
+import { useAuth } from '../auth/AuthProvider.js';
+import { apiService } from '../services/apiService.js';
 
 interface AuthPageProps {
   mode: 'login' | 'register';

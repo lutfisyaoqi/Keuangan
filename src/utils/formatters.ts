@@ -1,4 +1,4 @@
-import { TransactionType } from '../types/finance';
+import { TransactionType } from '../types/finance.js';
 
 /**
  * Format a number to Indonesian Rupiah currency string.

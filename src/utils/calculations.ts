@@ -1,4 +1,4 @@
-import { Transaction, TransactionType } from '../types/finance';
+import { Transaction, TransactionType } from '../types/finance.js';
 
 export interface BalanceStats {
   initialBalance: number;

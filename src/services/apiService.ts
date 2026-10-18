@@ -1,4 +1,4 @@
-import { Transaction, TransactionType, FilterType } from '../types/finance';
+import { Transaction, TransactionType, FilterType } from '../types/finance.js';
 
 export interface AuthUser {
   id: string;

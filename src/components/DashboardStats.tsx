@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowDownLeft, ArrowUpRight, Receipt, Landmark, Edit3 } from 'lucide-react';
-import { BalanceStats } from '../utils/calculations';
-import { formatRupiah } from '../utils/formatters';
+import { BalanceStats } from '../utils/calculations.js';
+import { formatRupiah } from '../utils/formatters.js';
 
 interface DashboardStatsProps {
   stats: BalanceStats;

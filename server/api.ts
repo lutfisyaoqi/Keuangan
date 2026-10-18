@@ -6,7 +6,7 @@ import session, { type Store } from 'express-session';
 import { Pool } from 'pg';
 import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../src/types/finance';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../src/types/finance.js';
 
 type Database = {
   __InternalSupabase: { PostgrestVersion: '14.1.0' };

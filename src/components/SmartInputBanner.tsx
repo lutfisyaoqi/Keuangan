@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
-import { aiService, ParsedTransactionData } from '../services/aiService';
+import { aiService, ParsedTransactionData } from '../services/aiService.js';
 
 interface SmartInputBannerProps {
   onParsed: (data: ParsedTransactionData) => void;

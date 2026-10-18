@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Wallet } from 'lucide-react';
-import { apiService } from '../services/apiService';
+import { apiService } from '../services/apiService.js';
 
 type RecoveryTokens = { accessToken: string; refreshToken: string };
 

@@ -1,4 +1,4 @@
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, TransactionType } from '../types/finance';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, TransactionType } from '../types/finance.js';
 
 export interface ValidationResult {
   isValid: boolean;

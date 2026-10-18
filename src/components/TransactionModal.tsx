@@ -4,14 +4,14 @@ import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
   TransactionType,
-} from '../types/finance';
-import { Transaction } from '../types/finance';
-import { formatRupiah, getTodayDateString, parseAmount } from '../utils/formatters';
-import { previewProjectedBalance } from '../utils/calculations';
-import { validateTransaction } from '../utils/validation';
-import { aiService, ParsedTransactionData } from '../services/aiService';
-import { prepareReceiptImage } from '../utils/receiptImage';
-import { TransactionReceipt } from '../services/apiService';
+} from '../types/finance.js';
+import { Transaction } from '../types/finance.js';
+import { formatRupiah, getTodayDateString, parseAmount } from '../utils/formatters.js';
+import { previewProjectedBalance } from '../utils/calculations.js';
+import { validateTransaction } from '../utils/validation.js';
+import { aiService, ParsedTransactionData } from '../services/aiService.js';
+import { prepareReceiptImage } from '../utils/receiptImage.js';
+import { TransactionReceipt } from '../services/apiService.js';
 
 interface TransactionModalProps {
   isOpen: boolean;

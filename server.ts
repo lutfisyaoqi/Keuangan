@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { rateLimit } from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
-import { closeApiResources, createApiRouter } from './server/api';
+import { closeApiResources, createApiRouter } from './server/api.js';
 
 dotenv.config({
   path: [

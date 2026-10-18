@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AlertCircle, Trash2 } from 'lucide-react';
-import { Transaction } from '../types/finance';
-import { formatRupiah, formatIndonesianDate } from '../utils/formatters';
+import { Transaction } from '../types/finance.js';
+import { formatRupiah, formatIndonesianDate } from '../utils/formatters.js';
 
 interface DeleteConfirmModalProps {
   isOpen: boolean;

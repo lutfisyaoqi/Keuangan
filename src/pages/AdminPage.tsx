@@ -5,11 +5,11 @@ import {
   ShieldAlert, ShieldCheck, Trash2, Users, Wrench, X,
 } from 'lucide-react';
 import { Link, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthProvider';
+import { useAuth } from '../auth/AuthProvider.js';
 import {
   AdminActivity, AdminAuditLog, AdminGrowthPoint, AdminOverview, AdminRetention, AdminRole, AdminSettings, AdminStorageUsage,
   AdminUser, ApiRequestError, apiService,
-} from '../services/apiService';
+} from '../services/apiService.js';
 
 const userPageSize = 10;
 const auditPageSize = 20;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowDownLeft, ArrowUpRight, FileImage, Trash2 } from 'lucide-react';
-import { Transaction } from '../types/finance';
-import { formatIndonesianDate, formatRupiah } from '../utils/formatters';
+import { Transaction } from '../types/finance.js';
+import { formatIndonesianDate, formatRupiah } from '../utils/formatters.js';
 
 interface TransactionItemProps {
   transaction: Transaction;

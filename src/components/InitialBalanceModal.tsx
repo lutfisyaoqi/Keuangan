@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Landmark, Check } from 'lucide-react';
-import { formatRupiah, parseAmount } from '../utils/formatters';
-import { validateInitialBalance } from '../utils/validation';
+import { formatRupiah, parseAmount } from '../utils/formatters.js';
+import { validateInitialBalance } from '../utils/validation.js';
 
 interface InitialBalanceModalProps {
   isOpen: boolean;

@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import express from 'express';
 import session from 'express-session';
-import { apiService } from '../services/apiService';
-import { closeApiResources, createApiRouter, escapeCsvCell, transactionRetentionCutoff, validateTransactionInput } from '../../server/api';
+import { apiService } from '../services/apiService.js';
+import { closeApiResources, createApiRouter, escapeCsvCell, transactionRetentionCutoff, validateTransactionInput } from '../../server/api.js';
 
 test('transaction retention cutoff clamps to the matching UTC calendar day', () => {
   assert.equal(transactionRetentionCutoff(new Date('2026-10-31T23:59:00.000Z')), '2026-08-31');

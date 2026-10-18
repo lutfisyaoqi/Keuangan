@@ -1,5 +1,5 @@
-import { Transaction } from '../types/finance';
-import { BalanceStats, sortTransactions } from './calculations';
+import { Transaction } from '../types/finance.js';
+import { BalanceStats, sortTransactions } from './calculations.js';
 
 function escapeCsvCell(value: string | number): string {
   if (typeof value === 'number') return String(value);

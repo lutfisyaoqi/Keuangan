@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, FileImage, Loader2, Trash2, X } from 'lucide-react';
-import { Transaction } from '../types/finance';
-import { apiService, TransactionReceipt } from '../services/apiService';
-import { formatIndonesianDate, formatRupiah } from '../utils/formatters';
-import { prepareReceiptImage } from '../utils/receiptImage';
+import { Transaction } from '../types/finance.js';
+import { apiService, TransactionReceipt } from '../services/apiService.js';
+import { formatIndonesianDate, formatRupiah } from '../utils/formatters.js';
+import { prepareReceiptImage } from '../utils/receiptImage.js';
 
 interface TransactionDetailModalProps {
   transaction: Transaction | null;
