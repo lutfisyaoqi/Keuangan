@@ -1458,6 +1458,77 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
     });
   }));
 
+  router.get('/finance-tools-summary', requireAuth, asyncRoute(async (req, res) => {
+    const userId = req.authUser!.id;
+    const pageSize = 1000;
+    const selectPage = (from: number, to: number) => req.userClient!.from('transactions')
+      .select('id,date,amount,type,category,description', { count: from === 0 ? 'exact' : undefined })
+      .eq('user_id', userId)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    const firstPage = await selectPage(0, pageSize - 1);
+    if (firstPage.error) {
+      jsonError(res, 503, 'Ringkasan anggaran belum dapat dimuat.');
+      return;
+    }
+
+    const total = firstPage.count ?? firstPage.data?.length ?? 0;
+    const rows = [...(firstPage.data ?? [])];
+    const pages = Array.from(
+      { length: Math.ceil(Math.max(0, total - pageSize) / pageSize) },
+      (_, index) => selectPage((index + 1) * pageSize, (index + 2) * pageSize - 1),
+    );
+    if (pages.length) {
+      const results = await Promise.all(pages);
+      const failed = results.some((result) => result.error);
+      if (failed) {
+        jsonError(res, 503, 'Ringkasan anggaran belum dapat dimuat.');
+        return;
+      }
+      for (const result of results) rows.push(...(result.data ?? []));
+    }
+
+    const today = new Date();
+    const monthStarts = Array.from({ length: 6 }, (_, index) =>
+      new Date(today.getFullYear(), today.getMonth() - 5 + index, 1),
+    );
+    const monthKeys = new Set(monthStarts.map((date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+    ));
+    const currentMonth = monthKeys.has(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`)
+      ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+      : '';
+    const monthlyExpenses: Record<string, number> = Object.fromEntries([...monthKeys].map((key) => [key, 0]));
+    const spentByCategory: Record<string, number> = {};
+    const goalContributions: { id: string; amount: number; description: string; category: string }[] = [];
+
+    for (const row of rows) {
+      if (row.type !== 'expense') continue;
+      const amount = Number(row.amount);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      if (row.date.startsWith(currentMonth)) {
+        spentByCategory[row.category] = (spentByCategory[row.category] ?? 0) + amount;
+      }
+      const month = row.date.slice(0, 7);
+      if (monthKeys.has(month)) monthlyExpenses[month] += amount;
+
+      if (row.description.startsWith('Setoran tabungan #')
+        || (row.category === 'Tabungan' && row.description.startsWith('Setoran tabungan:'))) {
+        goalContributions.push({
+          id: row.id,
+          amount,
+          description: row.description,
+          category: row.category,
+        });
+      }
+    }
+
+    res.json({ spentByCategory, monthlyExpenses, goalContributions });
+  }));
+
   router.get('/transactions', requireAuth, asyncRoute(async (req, res) => {
     const query = z.object({
       page: z.preprocess(emptyQueryValueToUndefined, z.coerce.number().int().min(1).default(1)),

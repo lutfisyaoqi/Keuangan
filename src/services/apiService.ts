@@ -15,6 +15,12 @@ export interface DashboardSummary {
   expenseCount: number;
 }
 
+export interface FinanceToolsSummary {
+  spentByCategory: Record<string, number>;
+  monthlyExpenses: Record<string, number>;
+  goalContributions: Array<Pick<Transaction, 'id' | 'amount' | 'description' | 'category'>>;
+}
+
 export interface TransactionFilters {
   page: number;
   pageSize: number;
@@ -160,6 +166,7 @@ export const apiService = {
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   getDashboardSummary: () => request<DashboardSummary>('/dashboard-summary'),
+  getFinanceToolsSummary: () => request<FinanceToolsSummary>('/finance-tools-summary'),
   async listTransactions(filters: TransactionFilters) {
     const params = new URLSearchParams();
     params.set('page', String(filters.page));
