@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../src/types/finance.js';
+import { logServerError } from './logging.js';
 
 type Database = {
   __InternalSupabase: { PostgrestVersion: '14.1.0' };
@@ -98,6 +99,10 @@ const receiptBucket = 'transaction-receipts';
 const maxReceiptSize = 5 * 1024 * 1024;
 let sessionPool: Pool | undefined;
 let missingAdminKeyLogged = false;
+const isProductionRuntime =
+  process.env.NODE_ENV === 'production' ||
+  process.env.VERCEL === '1' ||
+  Boolean(process.env.VERCEL_ENV);
 
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url().refine((value) => value.startsWith('postgres://') || value.startsWith('postgresql://')),
@@ -114,7 +119,7 @@ const serverEnvSchema = z.object({
   }),
 });
 
-function readServerEnvironment() {
+function readServerEnvironment(overrides: Partial<Record<string, string>> = {}) {
   const required = ['DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'AUTH_SECRET', 'APP_URL'] as const;
   for (const name of required) {
     if (!process.env[name]?.trim()) {
@@ -122,17 +127,21 @@ function readServerEnvironment() {
     }
   }
 
-  const result = serverEnvSchema.safeParse(process.env);
+  const result = serverEnvSchema.safeParse({ ...process.env, ...overrides });
   if (!result.success) {
     const name = String(result.error.issues[0]?.path[0] ?? 'configuration');
     throw new Error(`Invalid environment variable: ${name}`);
   }
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionRuntime) {
     if (!result.data.SUPABASE_URL.startsWith('https://')) {
       throw new Error('SUPABASE_URL must use HTTPS in production.');
     }
     if (!result.data.APP_URL.startsWith('https://')) {
       throw new Error('APP_URL must use HTTPS in production.');
+    }
+    const sslMode = new URL(result.data.DATABASE_URL).searchParams.get('sslmode');
+    if (!['require', 'verify-ca', 'verify-full'].includes(sslMode ?? '')) {
+      throw new Error('DATABASE_URL must enable TLS using sslmode=require, verify-ca, or verify-full in production.');
     }
   }
   return result.data;
@@ -425,13 +434,17 @@ function protectAgainstCsrf(appUrl: string) {
   };
 }
 
-export function createApiRouter(options: { sessionStore?: Store } = {}) {
-  const config = readServerEnvironment();
-  const pool = options.sessionStore ? undefined : new Pool({ connectionString: config.DATABASE_URL });
+export function createApiRouter(options: { sessionStore?: Store; databaseUrl?: string; poolMax?: number } = {}) {
+  const config = readServerEnvironment(options.databaseUrl ? { DATABASE_URL: options.databaseUrl } : undefined);
+  const pool = options.sessionStore ? undefined : new Pool({
+    connectionString: config.DATABASE_URL,
+    max: options.poolMax ?? (isProductionRuntime ? 1 : 10),
+    connectionTimeoutMillis: 10_000,
+  });
   if (pool) sessionPool = pool;
   const PgStore = connectPgSimple(session);
   const router = Router();
-  const secureCookie = process.env.NODE_ENV === 'production';
+  const secureCookie = isProductionRuntime;
   const store = options.sessionStore ?? new PgStore({
     pool: pool!,
     tableName: 'catatuang_express_sessions',
@@ -2018,13 +2031,19 @@ export function createApiRouter(options: { sessionStore?: Store } = {}) {
   router.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
     const databaseUnavailable = errorHasCode(error, ['28P01', '28P02', '28000', '08000', '08003', '08006', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT']);
     if (res.headersSent) {
-      console.error(databaseUnavailable ? 'Database unavailable after response was committed' : 'API error after response was committed');
+      logServerError(
+        databaseUnavailable ? 'Database unavailable after response was committed' : 'API error after response was committed',
+        error,
+      );
       return;
     }
     if (databaseUnavailable) {
-      console.error(req.method === 'POST' && req.path === '/auth/login' ? 'Login failed: database unavailable' : 'Database unavailable');
+      logServerError(
+        req.method === 'POST' && req.path === '/auth/login' ? 'Login failed: database unavailable' : 'Database unavailable',
+        error,
+      );
     } else {
-      console.error('API request failed');
+      logServerError('API request failed', error);
     }
     const status = databaseUnavailable ? 503 : 500;
     void recordServiceError(databaseUnavailable ? 'database' : 'api', `${req.method} ${req.path}`, status);

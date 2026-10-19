@@ -12,11 +12,19 @@ const __dirname = path.dirname(__filename);
 
 // Setup Vite or static serving
 async function startServer() {
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL === '1' ||
+    Boolean(process.env.VERCEL_ENV);
+  const serveBuiltFrontend =
+    isProd || process.env.SERVE_BUILT_FRONTEND === 'true';
   const distDir = path.resolve(__dirname, 'dist');
 
   let closeViteServer: (() => Promise<void>) | undefined;
-  if (isProd && fs.existsSync(distDir)) {
+  if (serveBuiltFrontend) {
+    if (!fs.existsSync(distDir)) {
+      throw new Error(`Frontend build not found at ${distDir}. Run npm run build first.`);
+    }
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distDir, 'index.html'));

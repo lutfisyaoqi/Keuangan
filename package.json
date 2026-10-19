@@ -11,8 +11,11 @@
   "scripts": {
     "dev": "tsx server.ts",
     "dev:open": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-web.ps1",
+    "web:fast": "powershell -NoProfile -ExecutionPolicy Bypass -File ./run-web-fast.ps1",
     "stop:web": "powershell -NoProfile -ExecutionPolicy Bypass -File ./stop-web.ps1",
     "build": "vite build",
+    "cloudflare:dev": "npm run build && wrangler dev",
+    "cloudflare:deploy": "npm run build && wrangler deploy",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "node -e \"for (const p of ['dist','server.js']) require('node:fs').rmSync(p,{recursive:true,force:true})\"",
@@ -22,22 +25,16 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@supabase/supabase-js": "^2.117.2",
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.1.1",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.0",
     "express-session": "^1.19.0",
-    "lucide-react": "^0.546.0",
     "pg": "^8.23.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "react-router-dom": "^7.18.4",
-    "vite": "^8.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "^4.17.21",
     "@types/express-session": "^1.19.0",
@@ -45,8 +42,15 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-router-dom": "^7.18.4",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "wrangler": "^4.151.1"
   }
 }

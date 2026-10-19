@@ -4,6 +4,7 @@ import path from 'node:path';
 import { rateLimit } from 'express-rate-limit';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createApiRouter } from './api.js';
+import { logServerError } from './logging.js';
 
 dotenv.config({
   path: [
@@ -28,7 +29,11 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  if (process.env.NODE_ENV === 'production') {
+  if (
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL === '1' ||
+    Boolean(process.env.VERCEL_ENV)
+  ) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
@@ -286,7 +291,7 @@ Aturan ekstraksi:
       },
     });
   } catch (err) {
-    console.error('Gemini parse error, using fallback parser:', err);
+    logServerError('Gemini parse failed; using fallback parser', err);
     const fallbackResult = fallbackSmartParse(transactionText);
     res.json({
       success: true,
@@ -301,8 +306,7 @@ Aturan ekstraksi:
 try {
   app.use('/api', createApiRouter());
 } catch (error) {
-  const reason = error instanceof Error ? error.message : 'API configuration is invalid.';
-  console.error(`API unavailable: ${reason}`);
+  logServerError('API router initialization failed', error);
   app.use('/api', (_req, res) => {
     res.status(503).json({ error: 'Layanan belum siap. Periksa konfigurasi server.' });
   });
