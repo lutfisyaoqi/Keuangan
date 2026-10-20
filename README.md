@@ -9,7 +9,7 @@ Status berarti implementasi yang ditemukan di repository, bukan jaminan seluruh 
 | Fitur | Status | Catatan berdasarkan kode |
 | --- | --- | --- |
 | Registrasi, login, logout, pemulihan dan reset password | Sudah diimplementasikan | Kredensial ditangani Supabase Auth; pemulihan password memakai email Supabase. Email/SMTP production harus dikonfigurasi di Supabase. |
-| Session pengguna | Sudah diimplementasikan | Cookie `catatuang.sid`; record session dan token disimpan di PostgreSQL melalui `connect-pg-simple`. |
+| Session pengguna | Sudah diimplementasikan | Session dikelola Supabase Auth di browser menggunakan Supabase JS. |
 | Dashboard saldo dan ringkasan | Sudah diimplementasikan | Saldo awal, pemasukan, pengeluaran, hitungan transaksi. |
 | Tambah pemasukan dan pengeluaran | Sudah diimplementasikan | Data transaksi disimpan melalui Supabase API. |
 | Kategori transaksi | Sudah diimplementasikan | Kategori dibatasi dan divalidasi di backend. |
@@ -19,12 +19,12 @@ Status berarti implementasi yang ditemukan di repository, bukan jaminan seluruh 
 | Ekspor laporan transaksi | Sudah diimplementasikan | Ekspor CSV oleh UI; endpoint admin juga menyediakan CSV metrik agregat. |
 | Anggaran kategori, target tabungan, pengeluaran 6 bulan | Sebagian | Alat UI tersedia. Anggaran, target dan data jadwal disimpan di `localStorage`, bukan sebagai tabel sinkronisasi server. |
 | Transaksi rutin dan pengingat | Sebagian | Ada UI/penjadwalan lokal. Tidak ditemukan worker/server scheduler yang otomatis membuat transaksi rutin atau mengirim push/email reminder. |
-| Input transaksi dengan bahasa alami | Sebagian | Parser Gemini opsional dengan fallback lokal; route ini tersedia di Express app, tetapi tidak dipasang oleh adaptor Cloudflare Worker yang ada. |
+| Input transaksi dengan bahasa alami | Sebagian | Parser berjalan lokal di browser; hasilnya perlu diperiksa sebelum disimpan. |
 | Pengaturan profil dan saldo awal | Sudah diimplementasikan | Nama dan saldo awal dapat diperbarui. |
 | Ubah password dan hapus akun | Sudah diimplementasikan | Menggunakan Supabase Auth/RPC dan mengakhiri session. |
-| Panel admin | Sebagian | API/UI ada. Penggunaan memerlukan migrasi admin, pemberian role, dan `SUPABASE_SERVICE_ROLE_KEY`; keberadaan konfigurasi di repository tidak membuktikan admin sudah disiapkan di production. |
-| Pengumuman dan mode pemeliharaan | Sebagian | Dikelola panel admin dan endpoint status publik. Tampilan status di aplikasi ada; konfigurasi database/role tetap diperlukan. |
-| Retensi otomatis transaksi lama | Sebagian | Vercel Cron dikonfigurasi harian; butuh `CRON_SECRET`, service-role key, migrasi admin/monitoring, dan konfigurasi deployment. |
+| Panel admin | Sebagian | UI memanggil RPC Supabase dengan JWT pengguna; perlu migrasi admin/direct-client dan pemberian role pada `public.admin_users`. |
+| Pengumuman dan mode pemeliharaan | Sebagian | Dikelola panel admin melalui RPC; tampilan status publik perlu migration direct-client. |
+| Retensi otomatis transaksi lama | Belum tersedia di deployment statis | Endpoint cron Express lama tidak dijalankan oleh deployment Vercel statis. |
 | Aplikasi native/mobile, pembayaran, sinkronisasi multi-device untuk alat `localStorage` | Belum ada / tidak ditemukan | Tidak ditemukan implementasi dalam repository yang diperiksa. |
 
 ## Teknologi
@@ -35,13 +35,12 @@ Versi di bawah adalah rentang versi yang tercantum dalam `package.json`, bukan v
 | --- | --- |
 | Bahasa | TypeScript `^7.0.2`, JavaScript ESM |
 | Frontend | React `^19.0.1`, React Router `^7.18.4`, Vite `^8.3.0`, Tailwind CSS `^4.3.3`, `@tailwindcss/vite` `^4.3.3`, `@vitejs/plugin-react` `^6.1.1`, Lucide React `^0.546.0` |
-| Backend | Node.js, Express `^4.21.2`, `express-session` `^1.19.0`, `express-rate-limit` `^8.7.0`, Zod `^4.6.5` |
-| Authentication/API data | Supabase Auth dan Supabase JS `^2.117.2` |
-| PostgreSQL/session store | `pg` `^8.23.0`, `connect-pg-simple` `^10.0.0` |
-| AI opsional | Google GenAI SDK `^2.4.0` |
+| API aktif | Supabase Auth, PostgREST, Storage, RPC, Supabase JS `^2.117.2` |
+| Backend legacy | Express `^4.21.2`, `express-session` `^1.19.0`, `express-rate-limit` `^8.7.0`, Zod `^4.6.5` |
+| PostgreSQL/session store legacy | `pg` `^8.23.0`, `connect-pg-simple` `^10.0.0` |
 | Konfigurasi lokal | `dotenv` `^17.2.3` |
 | Tooling lokal/build | `tsx` `^4.21.0`, TypeScript; Wrangler `^4.151.1` untuk konfigurasi Cloudflare yang juga ada |
-| Database/ORM | PostgreSQL di Supabase; tidak ditemukan ORM. Data aplikasi diakses melalui Supabase JS, dan PostgreSQL `pg` digunakan langsung untuk session store. |
+| Database/ORM | PostgreSQL di Supabase; tidak ditemukan ORM. Frontend mengakses data melalui Supabase JS dengan RLS. |
 | Email | Tidak ditemukan library email khusus. Email verifikasi/pemulihan diminta melalui Supabase Auth; pengiriman aktual bergantung pada pengaturan email/SMTP project Supabase. |
 
 Paket build dan frontend yang hanya diperlukan untuk build berada di `devDependencies`. Backend production memerlukan dependency dari `dependencies`.
@@ -51,7 +50,7 @@ Paket build dan frontend yang hanya diperlukan untuk build berada di `devDepende
 ```text
 .
 ├── api/
-│   └── index.ts                 # adaptor Vercel Function untuk jalur /api/*
+  │   └── index.ts                 # Express adapter legacy
 ├── database/
 │   └── migrations/              # skema awal, receipt, immutable transaction, session store
 ├── server/
@@ -88,29 +87,22 @@ Folder `node_modules/` dan `dist/` adalah hasil instalasi/build, bukan source ap
 
 ```mermaid
 flowchart LR
-  Browser[React SPA / Vite build] -->|/api/* + cookie| VercelRewrite[Vercel rewrite]
-  VercelRewrite --> Function[api/index.ts]
-  Function --> Express[server/app.ts]
-  Express --> Router[server/api.ts]
-  Router -->|Auth, profile, transactions, Storage| Supabase[Supabase]
-  Router -->|session records| Pg[(PostgreSQL session-mode pooler)]
-  Express -->|optional AI parsing| Gemini[Google GenAI]
-  Vercel -->|scheduled request| Cron[GET /api/cron/purge-old-transactions]
+  Browser[React SPA / Vite] -->|Supabase Auth + publishable key| Supabase[Supabase Auth]
+  Browser -->|PostgREST, Storage, RPC + user JWT| RLS[Supabase PostgreSQL + RLS]
+  RLS --> Tables[users, transactions, admin tables]
+  RLS --> Receipts[Private receipt bucket]
 ```
 
-1. Vite membangun frontend statis ke `dist/`. Vercel menyajikan file tersebut; API diarahkan melalui rewrite ke `api/index.ts`.
-2. `api/index.ts` mengubah path hasil rewrite kembali menjadi `/api/<path>` dan memuat `server/app.js`. Import ESM lokal menggunakan ekstensi `.js` sesuai output/runtime NodeNext TypeScript.
-3. Express memasang middleware dan `createApiRouter()` dari `server/api.ts`. Route AI berada di `server/app.ts`.
-4. Supabase Auth memverifikasi kredensial dan mengelola password serta JWT. Backend menggunakan Supabase client dengan token pengguna untuk operasi data yang dibatasi RLS.
-5. Token access/refresh disimpan dalam session server-side PostgreSQL, bukan `localStorage` browser. Browser hanya menerima cookie `catatuang.sid` dengan `HttpOnly`, `SameSite=Lax`, `Path=/`, dan `Secure` di production. Session pengguna berumur rolling hingga 30 hari; session admin 30 menit.
-6. Data transaksi dan profil berada di Supabase PostgreSQL melalui Supabase API. Library `pg` langsung dipakai untuk tabel session Express, bukan untuk query transaksi.
-7. Semua method selain GET/HEAD/OPTIONS mendapat pemeriksaan Origin/Referer terhadap `APP_URL` sebagai perlindungan CSRF, dengan pengecualian terbatas untuk beberapa permintaan admin yang ditangani tanpa sesi.
+1. Vite membangun frontend statis ke `dist/`; Vercel mengirim SPA dengan fallback route ke `index.html`.
+2. Supabase Auth mengelola login dan session browser melalui `@supabase/supabase-js`.
+3. Browser menggunakan URL project dan publishable/anon key. Semua akses tabel dan Storage tetap dibatasi oleh RLS dan JWT pengguna.
+4. Data finansial tiap akun dibatasi berdasarkan `auth.uid()`. Fungsi admin menggunakan `SECURITY DEFINER` dengan pemeriksaan role `admin_users`; service-role key tidak berada di browser.
 
-Vite tidak diperlukan oleh Function API production. Import dinamis Vite hanya ada pada cabang server development di `server.ts`; server production/Vercel menggunakan static build.
+Kode Express lama masih ada untuk referensi, tetapi tidak menjadi jalur runtime pada deployment Vercel statis.
 
 ## API
 
-Semua endpoint di bawah adalah path publik lengkap. Route API dipasang di bawah `/api`. `Cookie` dikirim otomatis oleh browser untuk sesi yang ada. Request JSON membutuhkan `Content-Type: application/json`; mutasi juga harus berasal dari origin aplikasi yang benar.
+Bagian ini mendokumentasikan Express API legacy yang source-nya masih ada di repository. Frontend dan deployment Vercel statis saat ini tidak memanggil endpoint tersebut; semua fungsi aktif menggunakan Supabase client dan RLS.
 
 ### Auth, profil, dan transaksi
 
@@ -216,8 +208,8 @@ Skema berikut dirangkum dari SQL migrations yang ada. Tabel platform `auth.users
 | --- | --- | --- |
 | `public.users` | `id uuid` PK; `name text`; `email text` unik/lowercase; `initial_balance numeric(14,0)`; `created_at`, `updated_at timestamptz`; migrasi admin menambah `account_status text` dan `disabled_reason text` | `id` → `auth.users(id)` `ON DELETE CASCADE`; trigger membuat profil saat akun Auth dibuat |
 | `public.transactions` | `id uuid` PK; `user_id uuid`; `date date`; `amount numeric(14,0)`; `description text`; `type text`; `category text`; `created_at`, `updated_at timestamptz`; migrasi receipt menambah `receipt_path text`, `receipt_mime text`, `receipt_size integer` | `user_id` → `public.users(id)` `ON DELETE CASCADE`; `type` hanya income/expense; RLS berdasarkan pemilik |
-| `public.catatuang_express_sessions` | `sid varchar` PK; `sess json`; `expire timestamp(6)` | Tabel session yang dipakai Express, tidak memiliki FK aplikasi; akses dibatasi server |
-| `public.sessions` | `sid varchar` PK; `sess json`; `expire timestamp(6)` | Tabel lama dari baseline migration; kode Express saat ini memakai tabel khusus `catatuang_express_sessions` |
+| `public.catatuang_express_sessions` | `sid varchar` PK; `sess json`; `expire timestamp(6)` | Tabel legacy untuk Express; tidak dipakai deployment Vercel statis |
+| `public.sessions` | `sid varchar` PK; `sess json`; `expire timestamp(6)` | Tabel legacy dari baseline migration; tidak dipakai frontend Supabase langsung |
 | `public.admin_users` | `user_id uuid` PK; `role text`; `created_at timestamptz` | `user_id` → `auth.users(id)` `ON DELETE CASCADE`; role dibatasi `admin`, `support`, `owner` |
 | `public.admin_audit_logs` | `id bigint` identity PK; `actor_user_id uuid`; `actor_role text`; `action text`; `target_user_id uuid`; `reason text`; `result text`; `details jsonb`; `created_at timestamptz` | actor → `auth.users(id)` `ON DELETE SET NULL`; target tidak memiliki FK pada migrasi |
 | `public.app_settings` | `id boolean` PK; `announcement text`; `maintenance_mode boolean`; `updated_by uuid`; `updated_at timestamptz` | `updated_by` → `auth.users(id)` `ON DELETE SET NULL`; row singleton memakai `id=true` |
@@ -237,30 +229,18 @@ File migrasi yang ada:
 - `supabase/migrations/20261013220000_add_admin_panel.sql` — kolom status akun dan tabel/fungsi admin awal.
 - `supabase/migrations/20261013230000_restrict_user_status_updates.sql` dan `20261014060000_add_admin_dashboard_aggregates.sql` — hardening dan agregat admin.
 - `supabase/migrations/20261016120000_admin_activity_monitoring.sql` — telemetri error dan retensi.
+- `supabase/migrations/20261020100000_direct_client_rls.sql` — RLS akun aktif serta RPC admin yang aman dipanggil dengan JWT pengguna.
 
-Periksa keadaan database target sebelum menjalankan migrasi. Baseline tidak boleh dijalankan ulang pada database yang telah berisi aplikasi/data tanpa penilaian migrasi terlebih dahulu. Untuk database baru, jalankan baseline sekali, kemudian session-store migration; migrasi receipt/admin sesuai fitur yang akan dipakai. Tidak ditemukan kebutuhan seed transaksi/pengguna: profil dibuat oleh trigger Supabase Auth, dan row awal `app_settings` dibuat oleh migrasi admin.
+Periksa keadaan database target sebelum menjalankan migrasi. Baseline tidak boleh dijalankan ulang pada database yang telah berisi aplikasi/data tanpa penilaian migrasi terlebih dahulu. Untuk database baru, jalankan baseline sekali, lalu migrasi receipt/admin dan migrasi direct-client. Migration session-store hanya dibutuhkan oleh Express legacy. Profil dibuat oleh trigger Supabase Auth, dan row awal `app_settings` dibuat oleh migrasi admin.
 
 ## Environment variables
 
-`.env.example` menyediakan nama variabel tanpa credential asli. Isi rahasia lokal di `.env.local` atau `.env`, dan masukkan nilai server-side di Vercel Project Settings → Environment Variables. Jangan memakai prefix `VITE_` untuk rahasia server.
+`.env.example` menyediakan dua variabel frontend. Karena prefix `VITE_` membuat nilai tersedia di bundle browser, isi hanya URL Supabase dan publishable/anon key. Jangan pernah menaruh service-role atau secret key di variabel `VITE_`.
 
 | Nama | Wajib | Format/contoh non-rahasia |
 | --- | --- | --- |
-| `SUPABASE_URL` | Ya untuk API | `https://<project-ref>.supabase.co` |
-| `SUPABASE_ANON_KEY` | Ya untuk API | `<Supabase publishable/anon key>` |
-| `DATABASE_URL` | Ya untuk API/session store | `postgresql://<user>:<encoded-password>@<session-pooler-host>:5432/<database>?sslmode=require` |
-| `AUTH_SECRET` | Ya | Random string minimal 32 karakter; generate lokal menggunakan `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
-| `APP_URL` | Ya | Origin root, mis. `https://<app-domain>`; HTTPS wajib di production |
-| `SUPABASE_SERVICE_ROLE_KEY` | Fitur admin/status/cron | `<service-role key>`; server-only |
-| `CRON_SECRET` | Endpoint cron | `<random bearer secret>`; server-only |
-| `GEMINI_API_KEY` | Opsional | `<Google GenAI API key>` |
-| `TRUST_PROXY_HOPS` | Opsional | Bilangan 1–5 hanya bila jumlah proxy dipercaya diketahui |
-| `PORT` | Opsional lokal | `3000` bila kosong |
-| `NODE_ENV`, `VERCEL`, `VERCEL_ENV` | Runtime | Disediakan/dipilih oleh process/deployment platform; menentukan mode production |
-| `DISABLE_HMR` | Opsional dev | `true` menonaktifkan HMR dan watch Vite |
-| `HYPERDRIVE.connectionString` | Worker Cloudflare saja | Binding Cloudflare Hyperdrive; lihat `wrangler.jsonc` dan `worker/index.ts` |
-
-`DATABASE_URL` yang dipakai oleh kode production harus memiliki `sslmode=require`, `verify-ca`, atau `verify-full`. Untuk Vercel, gunakan Supabase session-mode pooler; kode tidak mendukung pilihan URL transaction-mode pooler sebagai substitusi session pooler.
+| `VITE_SUPABASE_URL` | Ya | `https://<project-ref>.supabase.co` |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Ya | `<Supabase publishable key>`; nama lama `VITE_SUPABASE_ANON_KEY` juga diterima |
 
 ## Menjalankan lokal
 
@@ -268,8 +248,7 @@ Periksa keadaan database target sebelum menjalankan migrasi. Baseline tidak bole
 
 - Node.js `20.19+` atau `22.12+` (sesuai dokumentasi/prasyarat repository dan kompatibilitas tooling).
 - npm.
-- Project Supabase dengan Auth email/password dan PostgreSQL.
-- Akses PostgreSQL untuk session store.
+- Project Supabase dengan Auth email/password, tabel CatatUang, RLS, dan bucket receipt.
 
 ### Setup
 
@@ -279,17 +258,17 @@ Copy-Item .env.example .env.local
 npm install
 ```
 
-Untuk database baru, terapkan migrasi baseline dan session store seperti dijelaskan pada [bagian migrasi](#migrasi). Untuk project/database yang sudah dipakai, inspeksi tabel dan migration history terlebih dahulu; jangan mengulang baseline secara membabi buta. Tidak ada perintah seed package script yang ditemukan.
+Untuk database baru, terapkan migrasi baseline dan migrasi fitur sesuai urutan pada [bagian migrasi](#migrasi). Untuk project/database yang sudah dipakai, inspeksi tabel dan migration history terlebih dahulu; jangan mengulang baseline secara membabi buta. Jalankan migrasi `20261020100000_direct_client_rls.sql` pada SQL Editor Supabase untuk mengaktifkan RPC dan kebijakan akses browser yang baru.
 
 ### Scripts `package.json`
 
 | Script | Fungsi |
 | --- | --- |
-| `npm run dev` | Menjalankan `tsx server.ts`; server memakai Vite middleware saat development |
+| `npm run dev` | Menjalankan Vite di `http://localhost:3000` |
 | `npm run dev:open` | Windows: menjalankan helper PowerShell dan membuka browser |
 | `npm run stop:web` | Menghentikan helper server web Windows |
 | `npm run build` | `vite build`, menghasilkan frontend statis di `dist/` |
-| `npm start` | `tsx server.ts`; untuk mode production, set `NODE_ENV=production` dan build frontend lebih dulu |
+| `npm start` | Menjalankan preview server untuk build statis |
 | `npm run preview` | Menjalankan Vite preview |
 | `npm run lint` | `tsc --noEmit` |
 | `npm test` | Menjalankan test finance dan API melalui `tsx --test` |
@@ -301,46 +280,39 @@ Jalankan `npm run dev` lalu buka `http://localhost:3000`. Untuk helper browser o
 
 ## Deploy ke Vercel
 
-`vercel.json` saat ini menetapkan:
+`vercel.json` menetapkan:
 
 - Build command: `npm run build`
 - Output directory: `dist`
-- Rewrite `/api/:path*` ke `/api/index?__api_path=:path*`
-- Fallback path selain API ke `/index.html` untuk React SPA
-- Cron harian `GET /api/cron/purge-old-transactions` dengan jadwal `0 0 * * *`
+- Fallback route ke `/index.html` untuk React SPA
 
-Environment Production minimum untuk menginisialisasi backend: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_SECRET`, `APP_URL`. Set `CRON_SECRET` serta `SUPABASE_SERVICE_ROLE_KEY` untuk job cleanup; service-role key juga diperlukan endpoint admin/status tertentu. `GEMINI_API_KEY` opsional.
+Tambahkan `VITE_SUPABASE_URL` dan `VITE_SUPABASE_PUBLISHABLE_KEY` di **Project Settings → Environment Variables** untuk Production. Setelah perubahan env atau kode, redeploy agar nilainya masuk ke bundle frontend.
 
 Catatan:
 
 - Pastikan dev dependencies tersedia selama build Vercel karena `vite build` dan plugin Vite berada di `devDependencies`. Jangan konfigurasi install production-only sebelum proses build.
-- API Function tidak boleh mengimpor Vite. Vite hanya tooling frontend/build dan middleware server lokal.
-- Import relatif ESM TypeScript di backend menggunakan ekstensi `.js` untuk kompatibilitas NodeNext runtime.
-- Gunakan PostgreSQL session-mode pooler dengan TLS; pool production dibatasi agar jumlah koneksi per Function instance tidak berlebihan.
-- Jika ada error `503`, periksa Vercel Runtime Logs. `API router initialization failed` mengindikasikan konfigurasi router/environment; `Vercel API app initialization failed` menandakan error saat memuat Express app atau dependensinya. Logger menyamarkan nilai variabel rahasia.
+- Pastikan migration RLS CatatUang sudah diterapkan pada project Supabase yang sama dengan URL di Vercel.
 - Riwayat project yang diberikan menyebut `ERR_UNSUPPORTED_DIR_IMPORT` dan error native Rolldown binding. Itu adalah riwayat laporan pengguna, bukan bukti bahwa deployment terbaru sudah memperbaiki/masih mengalami error tersebut; repository tidak dapat memverifikasi deployment `keuangan-ioq5.vercel.app`.
 
 ## Keamanan dan batasan
 
 - Password tidak disimpan oleh aplikasi; Supabase Auth mengelola kredensial/password.
-- Session server-side menyimpan token Supabase; browser hanya menerima cookie HttpOnly.
-- RLS memisahkan profil/transaksi per pengguna; backend memvalidasi kepemilikan data.
+- Supabase Auth menyimpan session browser; publishable key aman dipublikasikan hanya dengan RLS aktif.
+- RLS membatasi profil, transaksi, Storage, serta akses RPC admin berdasarkan `auth.uid()` dan role.
 - Zod memvalidasi input; JSON request dibatasi 32 KiB; transaksi memvalidasi tipe, tanggal, jumlah dan kategori.
-- Proteksi CSRF membandingkan Origin/Referer dengan `APP_URL` untuk request mutasi.
 - Security headers mencakup `X-Content-Type-Options`, `X-Frame-Options`, Referrer Policy, Permissions Policy; production menambah HSTS dan CSP.
-- Rate limit diterapkan pada auth, login admin, admin API, dan parsing AI.
+- Supabase Auth menerapkan perlindungan autentikasi dan rate limit platform.
 - Receipt dibatasi MIME dan ukuran, disimpan di bucket privat dengan policy per UID. Signed URL berlaku sementara.
-- Admin/service-role/cron secrets harus server-side dan tidak boleh diekspos ke browser.
-- Production database TLS wajib dinyalakan melalui parameter `sslmode`.
+- Jangan menaruh secret/service-role key pada variabel `VITE_` atau bundle browser.
 - Data inti transaksi dibuat immutable setelah insert; ubah dengan hapus dan input ulang.
 - `.env`/`.env.local` tidak boleh di-commit. `.env.example` hanya boleh memuat nama dan contoh non-rahasia.
 
 ## Masalah diketahui dan hal yang belum dipastikan
 
-- **503 historis:** deployment pernah dilaporkan mengembalikan 503 untuk `/api/auth/session` dan `/api/auth/login`, dengan error native binding Rolldown di Runtime Logs. Sebab deployment yang sedang berjalan saat ini belum dapat dipastikan dari source lokal saja. Logger dan struktur import backend dapat membantu diagnosis setelah kode benar-benar di-deploy.
+- **Runtime Supabase:** login/data langsung dari browser memerlukan migration CatatUang yang sesuai dan RLS aktif pada project yang sama dengan dua variabel Vite.
 - **Konfigurasi production:** isi Environment Variables Vercel, keberadaan migrasi pada database remote, status SMTP Supabase, role admin yang telah diberikan, dan status deployment tidak dapat dipastikan dari repository.
 - **Cloudflare:** konfigurasi Worker ada sebagai target tambahan. `wrangler.jsonc` perlu diperiksa dan Hyperdrive ID aktual dikonfigurasi sebelum digunakan; route AI hanya ada di Express app dan belum dipasang di Worker adaptor saat ini.
-- **Mismatch test health-check:** implementasi `GET /api/admin/health` mengembalikan `checks.api`, tetapi assertion pada `src/server/api.test.ts` masih mengharapkan hanya `database`, `auth`, dan `storage`. Test admin terkait dapat gagal sampai ekspektasi test diselaraskan dengan kontrak endpoint atau implementasi.
+- **Express legacy:** file backend dan test API lama masih ada sebagai source legacy, tetapi tidak digunakan oleh deployment Vercel statis.
 - Tidak ditemukan implementasi backend yang menjalankan transaksi rutin/notification scheduler, dukungan pembayaran, ataupun ORM.
 - Tidak ditemukan TODO/FIXME yang secara eksplisit menandai pekerjaan tertunda pada source yang diaudit. “Belum ditemukan” tidak membuktikan fitur tersebut tidak pernah direncanakan di luar repository.
 
@@ -351,10 +323,8 @@ Catatan:
 
 ## Perlu dikonfirmasi di luar repository
 
-- Apakah variabel wajib dan rahasia fitur sudah diisi di environment Production Vercel dengan nilai yang sesuai.
-- Apakah `DATABASE_URL` production memakai host/credential session-mode pooler yang benar dan SSL dapat tersambung.
-- Apakah migrasi yang diperlukan sudah diterapkan pada Supabase project production, khususnya tabel session store.
+- Apakah `VITE_SUPABASE_URL` dan `VITE_SUPABASE_PUBLISHABLE_KEY` menunjuk ke project CatatUang yang benar.
+- Apakah migrasi RLS direct-client sudah diterapkan di Supabase project production.
 - Apakah provider email/SMTP Supabase telah disiapkan dan redirect URL mencakup origin aplikasi.
-- Apakah `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, dan konfigurasi admin telah disiapkan jika fitur terkait digunakan.
-- Apakah deployment terbaru sudah menggunakan commit ini dan apakah error 503 masih muncul di Runtime Logs.
+- Apakah admin sudah diberi role di `public.admin_users`.
 - Apakah konfigurasi Cloudflare/Hyperdrive perlu dipelihara; placeholder deployment tidak dapat diverifikasi dari kode saja.

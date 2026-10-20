@@ -2,17 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "crons": [
-    {
-      "path": "/api/cron/purge-old-transactions",
-      "schedule": "0 0 * * *"
-    }
-  ],
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/index?__api_path=:path*"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

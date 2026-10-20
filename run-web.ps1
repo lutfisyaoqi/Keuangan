@@ -13,12 +13,17 @@ if ($LASTEXITCODE -eq 0 -and $status -eq '200') {
 }
 
 $node = (Get-Command node).Source
-$tsx = Join-Path $projectDir 'node_modules/tsx/dist/cli.mjs'
-if (-not (Test-Path $tsx)) {
+$vite = Join-Path $projectDir 'node_modules/vite/bin/vite.js'
+if (-not (Test-Path $vite)) {
   throw 'Dependency belum terpasang. Jalankan npm install terlebih dahulu.'
 }
 
-$process = Start-Process -FilePath $node -ArgumentList @($tsx, 'server.ts') `
+$viteArgs = if ($env:SERVE_BUILT_FRONTEND -eq 'true') {
+  @($vite, 'preview', '--host', '0.0.0.0', '--port', '3000', '--strictPort')
+} else {
+  @($vite, '--host', '0.0.0.0', '--port', '3000', '--strictPort')
+}
+$process = Start-Process -FilePath $node -ArgumentList $viteArgs `
   -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $logFile -RedirectStandardError $errorLogFile
 $process.Id | Set-Content -Path $pidFile

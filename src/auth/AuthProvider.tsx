@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { apiService, AuthUser } from '../services/apiService.js';
+import { supabase } from '../services/supabaseClient.js';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -18,17 +19,35 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
 
   useEffect(() => {
     let active = true;
-    apiService.getSession()
-      .then(({ user: sessionUser }) => {
-        if (active) setUser(sessionUser);
-      })
-      .catch(() => {
+    void apiService.getSession().then(({ user: sessionUser }) => {
+      if (active) setUser(sessionUser);
+    }).catch(() => {
+      if (active) setUser(null);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
         if (active) setUser(null);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
+        return;
+      }
+      // Supabase recommends keeping network work outside the auth callback.
+      window.setTimeout(() => {
+        void apiService.getSession().then(({ user: sessionUser }) => {
+          if (active) setUser(sessionUser);
+        }).catch(() => {
+          if (active) setUser(null);
+        }).finally(() => {
+          if (active) setLoading(false);
+        });
+      }, 0);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const value: AuthContextValue = {
