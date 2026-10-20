@@ -44,6 +44,13 @@ export class ApiRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'ApiRequestError'; }
 }
 
+const productionAppOrigin = 'https://keuangan-kohl.vercel.app';
+
+function authRedirectUrl(path: string) {
+  const origin = import.meta.env.DEV ? window.location.origin : productionAppOrigin;
+  return new URL(path, origin).toString();
+}
+
 interface TransactionRow {
   id: string; user_id: string; date: string; amount: number | string; description: string;
   type: TransactionType; category: string; created_at: string; updated_at: string;
@@ -124,7 +131,7 @@ export const apiService = {
   async register(name: string, email: string, password: string, confirmPassword: string) {
     if (password !== confirmPassword) throw new ApiRequestError('Konfirmasi password tidak sama.', 400);
     const { data, error } = await supabase.auth.signUp({
-      email, password, options: { data: { name }, emailRedirectTo: `${window.location.origin}/dashboard` },
+      email, password, options: { data: { name }, emailRedirectTo: authRedirectUrl('/dashboard') },
     });
     if (error) throwSupabaseError(error);
     return {
@@ -138,7 +145,7 @@ export const apiService = {
   },
   async requestPasswordReset(email: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: authRedirectUrl('/reset-password'),
     });
     if (error) throwSupabaseError(error);
     return { message: 'Jika email terdaftar, tautan pemulihan akan segera dikirim.' };
