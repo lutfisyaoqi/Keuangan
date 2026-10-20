@@ -16,7 +16,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
-    strictPort: true,
+    // If another dev server is already using 3000, Vite picks the next free port.
+    strictPort: false,
     hmr: process.env.DISABLE_HMR !== 'true',
     watch: process.env.DISABLE_HMR === 'true' ? null : {},
   },
